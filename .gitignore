@@ -158,3 +158,5 @@ sssf.db*
 apps/inkwell/inkwell.db*
 
 *.mov
+# development worktrees
+.worktrees/
