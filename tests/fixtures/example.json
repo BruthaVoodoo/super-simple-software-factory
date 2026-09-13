@@ -1,0 +1,6 @@
+{
+  "upstream": "https://github.com/disler/super-simple-software-factory.git",
+  "commit": "b2dcb8e436db9b10f7580d7568b3e251609eb36b",
+  "application_paths": ["apps/inkwell/", "LICENSE"],
+  "example_recipes": ["ask", "build-review", "build-test", "cc", "default", "document", "ipi", "kill", "obs", "phases", "pi", "plan", "plan-build", "procs", "prompt", "rosters", "scout", "sdlc", "sessions", "simple-sdlc", "tail"]
+}

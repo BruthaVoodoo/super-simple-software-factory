@@ -2,6 +2,29 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development if a subagent tool is actually available; otherwise use superpowers:executing-plans. Execute sequentially with review between tasks. Steps use checkbox (`- [ ]`) syntax for tracking. Do not promise independent subagent review when it did not occur.
 
+## Execution status (handoff — update as you work)
+
+- **Work location:** isolated worktree `.worktrees/m1`, branch `feat/m1-regression-harness` (worktree skill applied; `main` untouched). Work from `/Volumes/DEV/super-simple-software-factory/.worktrees/m1`.
+- **DONE — Task 1** (`cfeadfc`): uv env (`uv sync --locked --group test --python 3.11` works), `scripts/checks.py` lanes, `tests/support/*`, `tests/install/test_install.py` — 13/13 green, run twice. Fix commit `7fd0b24` removed accidentally-committed AppleDouble junk and added `._*` to `.gitignore`.
+- **DONE — Task 2** (`3a386e3`): canonical template justfile (20 recipes, `cc`/`ipi` excluded, `smoke-real-pi` deliberately NOT added until Task 8), `adws/manage.py` + `operations.py` (readonly parameterized queries, rosters) + `process_control.py` (verified-identity, confirmed, TERM-only kill), `tests/fixtures/argv-recorder.py`, `tests/install/test_justfile.py` (10), `tests/unit/test_operations.py` (7). Lanes: install 13/13, unit 10/10.
+- **Learnings for the next tasks:** (1) relative roster db paths resolve against process **cwd** (`_config_db_path`); tests chdir to the target. (2) `unittest` list membership needs exact elements — `'adws/adw_prompt.py' in argv`, not `'adw_prompt.py' in argv`. (3) kill-liveness tests must mock `os.kill` so SIGTERM marks pids dead for later 0-probes. (4) This volume constantly regenerates macOS `._*` junk — never `git add -A` blindly; add explicit paths.
+- **DONE — Task 3:** `tests/fixtures/example.json`, `tests/support/example.py` (`export_example` via `git ls-tree -r -z` + `cat-file blob`, symlink/submodule/traversal rejection; `prepare_example_target` = export + current-skill copy with junk exclusions + real install + synthetic baseline commit), `tests/install/test_example_install.py` (8: fresh stamp on untouched Inkwell, nonempty-destination rejection, prepared-target commit, copied-resource byte identity, reinstall preserves every byte + skip report, old justfile/user files preserved and still lacking `demo`, recipe lineage `canonical - {demo,smoke-real-pi} == example - {cc,ipi}`, spaces-in-path target). Lane: install 21/21, no skips.
+- **DONE — Task 4:** `tests/support/runtime.py` (`RuntimeTestCase`: stamped target + git init w/ synthetic identity + tracked `sample.txt` baseline + cwd switched to target), `tests/unit/test_contracts.py` (11: phase-description echo rejection, GateReport derivation, envelope round-trips, prompt render/save), `tests/unit/test_config.py` (11: defaults inheritance, `tools=[]`/`writes=[]` vs omission, validation failures — missing agent/prompts, claude_code, unknown model — with `_pi_catalog` patched to a fixed list and `agent_pi.run` tripwired), `tests/unit/test_gates.py` (12), `tests/unit/test_permissions.py` (14: full `permitted` policy table + enforcement/rollback against the real repo), `tests/unit/test_changes.py` (10: missing repo/ref, dirty base branch, feature branch, clean-tree fallback, untracked inclusion/exclusion, two-line truncation, explicit absolute handoff dir). Lane: unit 71/71, run twice.
+- **Learnings added:** (5) `RuntimeTestCase.branch` is a *live* property — freeze `base_branch` in setUp before any `checkout -b`, or `changes.resolve_base` silently diffs the wrong branch. (6) `verdict_consistent`/`diff_matches_claims` take `(envelope, run)`; `changed_files` claims need a `BuildOutput` (GenericOutput has no such field and `getattr` defaults to `[]` → silently passes).
+- **DONE — Task 5:** `tests/support/runtime.py` gained `make_run` (direct Run construction — no signal handlers; trace DB resolved absolute for independent readers; caller closes `run.tracer.conn`), `tests/unit/test_tracer.py` (10: seven tables, WAL/NORMAL/5000ms pragmas, literal hand-written legacy DDL + sentinel survival + idempotent reopen, JSONL/DB event identity, tool spans, envelope attempts, gate checks+violations, process closed-once), `tests/control_plane/test_runner.py` (6: independent reader sees `running` phase before finish, success reopenable, joined run appends seq 1→2, `finish(accepted=False)` returns 1 + `not_accepted` event + session fail, raising in phase records phase+session fail, usage accumulation). Lanes: unit 81/81, control-plane 6/6, install 21/21 — run twice, zero skips.
+- **Learnings added:** (7) SQLite `PRAGMA synchronous` returns 1 for NORMAL (2 is FULL). (8) `make_run` callers must chdir first — asserted, since `Run` derives `repo_root` and the relative db path from process cwd.
+- **DONE — Task 6:** `tests/fixtures/pi-double.py` (env-gated exit 64; catalog row `fixture fixture-model 32K 4K yes no` without consuming scenario state; strict argv surface — unknown `--flag` is exit 65; `synthetic_pi` session marker; atomic response position via exclusive-create; writes resolve beneath cwd BEFORE the final message_end so a refusal reaches agent_pi as nonzero-with-no-text; `wait_for_release` ≤10s), `tests/support/processes.py` gained `install_python_entrypoint` (locked-interpreter sh shim), `tests/control_plane/test_pi_transport.py` (16: exact 12 tokens/0.012 cost/raw file, env refusal, catalog non-consumption, marker, target-bounded writes, escape refusal exit 71, exhausted scenario exit 70, nonzero-no-text raises, malformed line doesn't erase next event, unicode round-trip, announce/start/end → one tool_call, streaming handshake with 5s observation + guaranteed release in `finally`). Lanes: control-plane 22/22, unit 81/81, install 21/21 — twice, zero skips.
+- **DONE — Task 7:** `tests/support/runtime.py` grew `responses()`, `ScenarioOptions`, `ScenarioResult` (fresh SQLite connection per verification; `requests()`/`envelope_validity()`/`events()`/`gates()`/`session_row()`/`phases()`/`processes()`), `execute_scenario` (real roster + Run + Tracer + AgentCall, only Pi doubled; errors captured on `result.error`), and `supervised_adw` (owned-group `adw_prompt.py` child with parked double + release cleanup). `test_agents.py` (11: same-session JSON correction, always-malformed 3 sends, gate retry 1 fail/1 pass with the double creating the artifact on send 2, GateFailure at retries=0, envelope status fail, PermissionBreach + restoration + no handoff, allowed handoff write, session rejoin across calls, 36 tokens/0.036 reconciliation, child actually exited), `test_lifecycle.py` (1: SIGTERM to supervised ADW → exit 143, session fail, all rows closed, OTHER run's live row untouched). `tests/known_gaps/` (7 expected failures — each verified UNDECORATED to fail with precisely the defect, no setup errors): M2-PERM-01/02/03/04, M2-TRACE-01, M2-PROC-01/02. `docs/known-gaps.md` records ID/test/invariant/observed failure/owner. Lanes: unit 81/81, install 21/21, control-plane 34/34, known-gaps 7 expected failures 0 unexpected successes.
+- **Learnings added:** (9) the double applies scenario writes BEFORE the final message_end — scenarios needing a missing-then-created artifact must use two distinct responses. (10) M2-PERM-04 needs an unauthorized write on a MALFORMED send: a valid send triggers enforcement immediately (which is correct behavior, not a gap). (11) polling a child's DB needs OperationalError tolerance (schema not yet created) and `_stop_group` now tolerates EPERM on killpg probes (recycled gid).
+- **DONE — Task 8:** `adw_modules/smoke.py` (`configure_probe` derives smoke from scout — verified non-scout agents untouched; `receipt_gate` exact-path+nonempty; `recall_gate` without nonce disclosure; `SmokeEvidence`; `capture_evidence` records raw offset + session header id BEFORE recall; `verify_trace`: phases, 2 valid envelopes, probe tool evidence, zero recall tools in trace AND raw wire output, single session identity, session file on disk), `adw_smoke.py` (probe-path validated before any session/Pi; engineer phase; nonce `token_hex(16)`; finish(accepted=verification.passed)), smoke prompts (plan's exact system text), `scripts/smoke-real-pi.py` (`preflight` refuses missing model/test-double env/fake paths BEFORE anything; fresh Inkwell target via Task 3 + smoke-only roster committed; `supervise` = owned group, DEVNULL stdin, 200ms readonly-URI DB poll for a tool_call while probe running + child alive, 180s bound, TERM→KILL owned group; `verify_acceptance` = exit/session/receipt/envelopes/no-recall-tools/live observation/app hashes/clean tree; sanitized summary only), both justfiles wired, recipe contract at the full 21-recipe canonical set. Supervisor tested with synthetic children: live observation pre-release, child-failure-before-DB (reported unverified), timeout 124 with owned-child killed and unrelated process untouched. Lanes: install 21/21, unit 98/98, control-plane 40/40, known-gaps 7/0.
+- **Learnings added:** (12) writing ANY new file on this volume can regenerate `._*` junk — the installer now skips dot-junk like `__pycache__` (a real user-repo stamping hazard), `prepare_example_target` sweeps + gitignores it in scratch targets, and the Task 1 manifest walk applies the same exclusions. (13) importlib-loaded modules must be registered in `sys.modules` before `exec_module` or dataclasses blows up on `__module__` resolution.
+- **DONE — Task 9:** `docs/testing.md` (full command/lane/limitation doc), spec M0 section marked recorded (two named read-only runs with a local model override; `just demo` did not exist at M0 time), README + install cookbook point at the testing doc and the verification command. Operator chose `opencode/gpt-5.6-luna` from the real catalog and confirmed live execution.
+- **REAL-Pi ACCEPTANCE PASSED:** `SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi` → ADW `58611d35`, exit 0, 17.8s, live event `evt_91eb0bf411d7` observed while probe ran, 2 valid envelopes, receipt exact, 0 recall tools, one session file, 0 synthetic markers, app hashes unchanged, clean tree, 23778 tokens / $0.00228721 (reported). Two launcher bugs found and fixed during the live run (scratch home inside the target; capture files dirtying the tree) — committed as `fix: launch the real smoke in a clean scratch target`. Full measured report: `docs/baselines/m1-acceptance.md`. Historical example worktree verified unchanged (HEAD pinned, 0 tracked diff, 7 untracked files preserved).
+- **M1 COMPLETE. Next: `finishing-a-development-branch` — merge to `main` requires operator approval; do not push without approval.**
+- Then Tasks 4–7 offline, Task 8 (`just smoke-real-pi`), Task 9 (needs operator to choose `SSSF_SMOKE_MODEL`).
+- Finish via `finishing-a-development-branch` after Task 9's real-Pi acceptance.
+
+
 **Goal:** Establish one canonical stamped Justfile, test fresh and repeated installation against the existing Inkwell example, exercise the Python control plane deterministically, and verify the current stamped runtime with real Pi.
 
 **Architecture:** Keep the factory source in its current location for M1. Export application files from the pinned example Git commit into disposable targets, then install the current working tree's templates into those targets. The historical example worktree remains unchanged. Separate offline tests, documented known defects, and an explicit real-Pi acceptance command.
@@ -354,7 +377,7 @@ Run `just test-install` and `just test-unit`. Check a stamped `just --list` manu
 - `prepare_example_target(destination: Path, env: dict[str, str]) -> dict[str, str]` — export, copy current skill resources for `pi`/`obs` compatibility, install current factory, then initialize and commit the synthetic scratch baseline containing the app and installed files. Return pre-install application hashes. Git setup uses the local synthetic test identity, disabled hooks/signing, and never changes the source checkout.
 - Reject an existing nonempty destination. Never overwrite the historical worktree or source repo.
 
-- [ ] **Step 1: Record the verified pin and paths.**
+- [x] **Step 1: Record the verified pin and paths.**
 
 ```json
 {
@@ -367,7 +390,7 @@ Run `just test-install` and `just test-unit`. Check a stamped `just --list` manu
 
 Verify the local object with `git cat-file -e b2dcb8e436db9b10f7580d7568b3e251609eb36b^{commit}`. If unavailable, the test fails with the one-time preparation command `git fetch https://github.com/disler/super-simple-software-factory.git example`; it must not fetch silently or substitute a moving branch.
 
-- [ ] **Step 2: Write the fresh-example test.**
+- [x] **Step 2: Write the fresh-example test.**
 
 ```python
 class ExampleInstallTests(FactoryTestCase):
@@ -385,20 +408,20 @@ class ExampleInstallTests(FactoryTestCase):
 
 Import `sha256` from `hashlib` and the named helpers in this task. Run the specific test before implementing the exporter; expect a missing helper, then implement and rerun.
 
-- [ ] **Step 3: Export from Git objects, not the live example directory.**
+- [x] **Step 3: Export from Git objects, not the live example directory.**
 
 Use `git ls-tree -r -z` at the pinned commit. For each allowed regular blob, fetch bytes using `git cat-file blob OBJECT_ID`, validate that its normalized path stays beneath destination, create its parents and write bytes; preserve executable mode. Reject symlinks, submodules and traversal paths rather than extracting them. Read only `apps/inkwell/` and `LICENSE`. This automatically excludes user data, ignored files, AppleDouble files, credentials, old runtime code and existing sessions.
 
 Copy current skill resource files from the working tree, including new files that have not yet been committed. Traverse only this known skill directory, reject symlinks, and exclude directories `.git`, `node_modules`, `__pycache__`, `dist`, `.vite`; exclude `.DS_Store`, names beginning `._`, bytecode, and `sssf.db*`. Never read the live example worktree for this step. Compare copied bytes against the source manifest so tests cannot accidentally exercise a stale committed template. This supports the existing two-step distribution path without requiring staging before tests.
 
-- [ ] **Step 4: Test the other two installation modes.**
+- [x] **Step 4: Test the other two installation modes.**
 
 1. Run install twice on a fresh example target; application hashes, config, prompts and Justfile must remain unchanged on the second pass.
 2. In a separate scratch target, seed the pinned example Justfile and a user-modified config/prompt, then run install. Assert exact preservation and a skip report. Explicitly assert this old Justfile still lacks `demo`; this verifies non-destructive re-install, not an upgrade failure.
 3. Compare the fixture's example recipe names against `just --summary` on a temporary file exported from the pinned commit; ensure `canonical - {'demo', 'smoke-real-pi'} == example - {'cc', 'ipi'}`.
 4. Run the fresh install from a target path containing spaces. Dependencies and caller cwd must not select the historical runtime accidentally.
 
-- [ ] **Step 5: Verify and commit.**
+- [x] **Step 5: Verify and commit.**
 
 Run `just test-install`. Missing Git objects are a prerequisite failure, not a skipped test. Commit as `test: verify installs against pinned inkwell files`.
 
@@ -413,7 +436,7 @@ Run `just test-install`. Missing Git objects are a prerequisite failure, not a s
 - `tests.support.runtime` imports the verified bootstrap from Task 1; it does not duplicate import-path or dotenv logic.
 - `RuntimeTestCase(FactoryTestCase)` stamps the temporary target, initializes a Git repository with local-only identity `SSSF Test <sssf@example.invalid>`, disabled hooks/signing, and tracked `sample.txt` containing `original\n`; commit the stamped files and sample as the fixture baseline. The install's `.gitignore` excludes runtime session writes from permission diffs. It changes cwd to the target and restores it in teardown. Tests run serially because cwd is process-global.
 
-- [ ] **Step 1: Write config and contract cases using actual public types.**
+- [x] **Step 1: Write config and contract cases using actual public types.**
 
 ```python
 class ContractTests(RuntimeTestCase):
@@ -431,21 +454,21 @@ class ContractTests(RuntimeTestCase):
 
 Import `ValidationError` and named runtime models. Add cases for required envelope status; invalid status; default artifact lists not shared; Generic/Plan/Build/Scout/Review/Document/Verify envelope round-trip; prompt replacement of all three supported variables; exact saved prompt bytes.
 
-- [ ] **Step 2: Exercise config validation without real Pi.**
+- [x] **Step 2: Exercise config validation without real Pi.**
 
 Test inherited/overridden model, thinking, tools and extension paths; preserve `tools=[]` and `writes=[]` as distinct from omission; reject missing required agents, missing prompt files and `coding_agent='claude_code'` at runtime validation. Patch only model catalog resolution to a fixed list. Assert validation never reaches `agent_pi.run`. Do not claim the schema already rejects Claude Code—the current validator, not the schema, does that.
 
-- [ ] **Step 3: Exercise gate and permissions policy boundaries.**
+- [x] **Step 3: Exercise gate and permissions policy boundaries.**
 
 Required gate cases: existing artifact, missing artifact, zero-byte file, valid/invalid JSON, review approval with blocking findings, rejection without a finding, and a failing `tests_pass` command using `sys.executable -c 'raise SystemExit(3)'` in scratch cwd.
 
 Required permission cases: `writes=None`, `writes=[]`, exact path, directory prefix, single-segment `*`, recursive `**`, protected path with/without explicit grant, runtime directory grant. For enforcement: modify previously clean `sample.txt` as read-only scout, expect `PermissionBreach` and original bytes restored. Do not use an operator file or ignored secret as input.
 
-- [ ] **Step 4: Exercise actual Git capture in scratch repos.**
+- [x] **Step 4: Exercise actual Git capture in scratch repos.**
 
 Test missing repo and missing ref errors; base branch with dirty file; a feature branch ahead of its base; clean tree falling back to last commit; untracked file inclusion/exclusion; diff truncation using a two-line limit; artifact path under an explicitly absolute scratch `context_handoff_dir` supplied to `changes.capture`. Assert returned filenames, counts, base commit/reason, and diff artifact contents. These commands never run in the source checkout.
 
-- [ ] **Step 5: Verify and commit.**
+- [x] **Step 5: Verify and commit.**
 
 Run `just test-unit`. Existing correct behavior may pass immediately. Any observed bug goes through the rule in section E; no speculative production refactor in this task. Commit as `test: characterize factory contracts and git boundaries`.
 
@@ -459,7 +482,7 @@ Run `just test-unit`. Existing correct behavior may pass immediately. Any observ
 
 - `make_run(target: Path, adw_id: str) -> Run` in `tests/support/runtime.py` — with cwd already set to target, load its stamped config, construct real `Tracer` and `Run`, call `tracer.session_start`, and use engineer `sssf-test`. Keep `defaults.data_dir='adws/adw_data'` so permission-prefix semantics match production; resolve only the trace DB path absolutely for independent readers. Register `run.tracer.conn.close` with the caller's cleanup. Direct construction avoids registering signal handlers in unit tests.
 
-- [ ] **Step 1: Write a visible-before-finish assertion.**
+- [x] **Step 1: Write a visible-before-finish assertion.**
 
 ```python
 class RunnerTests(RuntimeTestCase):
@@ -478,17 +501,17 @@ class RunnerTests(RuntimeTestCase):
 
 This tests SSSF persistence visibility, not live Pi streaming.
 
-- [ ] **Step 2: Test schema creation and additive migrations.**
+- [x] **Step 2: Test schema creation and additive migrations.**
 
 Assert all seven runtime tables exist and pragmas are WAL/NORMAL/5000ms. Seed literal old table definitions for sessions, agent_sessions, and gate_results without the six columns in `MIGRATIONS`; insert a sentinel row. Open `Tracer`, assert the new columns and sentinel survive, close, reopen and assert idempotency. Do not derive old fixtures by deleting text from `SCHEMA`, which would let production/schema mistakes redefine their own test input.
 
-- [ ] **Step 3: Verify persisted records and outcome semantics.**
+- [x] **Step 3: Verify persisted records and outcome semantics.**
 
 Required cases: event JSONL and DB share event ID/payload; tool span start/end preserved; invalid and valid envelope rows retain attempts; gate checks/violations both persisted; `session_add_usage` adds two calls correctly; process_start/process_end rows are closed once; `finish(accepted=False)` returns 1, writes session fail and `not_accepted`; raising inside a phase records phase/session fail; joining a completed run appends phase sequence rather than overwriting old rows.
 
 Do not infer OS process death from a DB row marked ended. Test that separately in Task 7.
 
-- [ ] **Step 4: Verify and commit.**
+- [x] **Step 4: Verify and commit.**
 
 Run `just test-unit` and `just test-control-plane`. Close tracer connections after every test; make sure temporary DBs can be reopened independently. Commit as `test: cover trace persistence and run outcomes`.
 
@@ -504,7 +527,7 @@ Run `just test-unit` and `just test-control-plane`. Close tracer connections aft
 - It requires `SSSF_TEST_DOUBLE=1` and a scratch `SSSF_PI_SCENARIO` file; otherwise exit 64. It never imports or shells out to real Pi and has no network client.
 - Scenarios use JSON records with `text`, `exit_code`, `usage`, `events`, `writes`, and optional `wait_for_release`. A write record is `{"path": "relative/to/target", "text": "fixture bytes"}`; an event is a literal JSON wire event; `wait_for_release` is a path under the scratch directory. State/log files live only in the target's ignored `adws/adw_data/sessions/test-double/` directory. Unexpected extra sends are an error, not a default success. Catalog queries do not consume a scenario response.
 
-- [ ] **Step 1: Define a minimal scenario and transport assertion.**
+- [x] **Step 1: Define a minimal scenario and transport assertion.**
 
 ```json
 {
@@ -524,21 +547,21 @@ Run `just test-unit` and `just test-control-plane`. Close tracer connections aft
 
 Write a test constructing real `PiRequest`, installing the double with `install_python_entrypoint`, patching `agent_pi.PI_PATH` to that executable shim and `MODELS_JSON` to scratch `{"providers": {}}`, clearing `_pi_catalog` before/after. Assert real `agent_pi.run` returns exactly 12 tokens, cost approximately 0.012 (`assertAlmostEqual`), the text above, and a raw JSONL file. Spawn/exit callbacks must reference the child's actual PID. Initial failure is missing double implementation.
 
-- [ ] **Step 2: Implement the process protocol.**
+- [x] **Step 2: Implement the process protocol.**
 
 Print a catalog headed `provider model context max-out thinking images` with `fixture fixture-model 32K 4K yes no`. Emit a `session` header and real-shaped `message_end`/tool_execution events, each followed by flush. Request logs capture synthetic prompts and argv in scratch only. Increment response position atomically in the scenario state. Permit scenario writes only after resolving their destination beneath the scratch target. Gate writes are fixture actions, not genuine model intelligence.
 
 The fixture contains an unmistakable `synthetic_pi` marker in its own session/header output. Live acceptance rejects that marker and rejects the double executable path.
 
-- [ ] **Step 3: Test streaming with a deterministic release handshake.**
+- [x] **Step 3: Test streaming with a deterministic release handshake.**
 
 The double emits a completed tool event, flushes stdout, then waits for a controller-created release file for at most ten seconds. While it waits, the test must observe the forwarded tool record and confirm the child is still alive. Only then create the release file. A five-second observation deadline failure releases/terminates the owned child in `finally` and fails the test. Do not use a final row count as a streaming assertion.
 
-- [ ] **Step 4: Cover transport failure and event folding.**
+- [x] **Step 4: Cover transport failure and event folding.**
 
 Assert a nonzero exit with no assistant text raises; malformed non-JSON stdout does not erase a subsequent valid event; one announce/start/end sequence produces exactly one tool_call with matching ID/tool/args/result; Unicode output survives; catalog resolution selects explicit provider and rejects ambiguous bare patterns. Use a bounded child stderr sample. A large-stderr hang reproduction belongs to the separately bounded known-gap lane, not a hanging normal test.
 
-- [ ] **Step 5: Verify and commit.**
+- [x] **Step 5: Verify and commit.**
 
 Run `just test-control-plane` in the credential-free environment. Assert only the double and owned Python/Git subprocesses launched. Commit as `test: add explicit offline pi transport double`.
 
@@ -553,7 +576,7 @@ Run `just test-control-plane` in the credential-free environment. Assert only th
 - `execute_scenario(case: RuntimeTestCase, scenario: dict[str, object], options: ScenarioOptions) -> ScenarioResult` — uses a real scratch config, Run, Tracer and AgentCall; only Pi is the double. Options name output type, gates, retries and read-only/write permission. Result exposes captured error, persisted run ID, request-log path and process evidence; it must not suppress assertions.
 - Each test verifies rows using a fresh SQLite connection and exact expected attempts.
 
-- [ ] **Step 1: Write retry behavior assertions against the real orchestrator.**
+- [x] **Step 1: Write retry behavior assertions against the real orchestrator.**
 
 ```python
 class AgentRetryTests(RuntimeTestCase):
@@ -570,7 +593,7 @@ class AgentRetryTests(RuntimeTestCase):
 
 Define `responses(*texts)` locally to build Task 6 scenarios with fixed usage per send; implement `ScenarioOptions`, `requests()` and `envelope_validity()` in `tests/support/runtime.py` exactly as named. Errors from the orchestrator are captured for explicit assertions, not treated as a passing test automatically.
 
-- [ ] **Step 2: Add the full behavior table.**
+- [x] **Step 2: Add the full behavior table.**
 
 | Case | Expected evidence |
 |---|---|
@@ -589,7 +612,7 @@ Define `responses(*texts)` locally to build Task 6 scenarios with fixed usage pe
 
 Use an in-process `Run` for most cases; test OS signal behavior in a supervised child because `session.ensure` installs process-global signal handlers. Always restore handlers for direct lifecycle tests.
 
-- [ ] **Step 3: Add narrow known-gap reproductions for M2.**
+- [x] **Step 3: Add narrow known-gap reproductions for M2.**
 
 Each case asserts the desired invariant. Run once undecorated to capture the precise failure, then add `expectedFailure` only if the known defect is reproduced. Do not pre-declare results as measured. Setup and scenario-execution exceptions must fail the suite rather than count as the expected invariant failure. Execute the reproduction and capture its result in `setUp` with registered cleanup; put only the final desired-invariant assertion in the `expectedFailure` test method.
 
@@ -605,7 +628,7 @@ Each case asserts the desired invariant. Run once undecorated to capture the pre
 
 The process-gap tests must use external deadlines and owned-group cleanup even while reproducing a leak/deadlock. No indefinite waits. Document test name, command, assertion failure and owner in `docs/known-gaps.md`. Broader commit-isolation changes are M2 work; do not alter `commit_all` here.
 
-- [ ] **Step 4: Verify the lanes separately and commit.**
+- [x] **Step 4: Verify the lanes separately and commit.**
 
 Run `just test-unit`, `just test-install`, `just test-control-plane`, then `just test-known-gaps`. Ordinary lanes must have zero skips/expected failures. The known-gap command must enumerate IDs, expected failures and unexpected successes. Record that distinction; do not report “all safety tests pass.” Commit as `test: cover orchestration retries and record m2 gaps`.
 
@@ -625,7 +648,7 @@ Run `just test-unit`, `just test-install`, `just test-control-plane`, then `just
 - `SmokeEvidence` in `smoke.py`: `probe_file: Path`, `receipt_file: Path`, `recall_raw_offset: int`, `first_pi_session_id: str`. Record offset and actual Pi session header ID after the probe call, before recall.
 - `smoke.verify_trace(run: Run, evidence: SmokeEvidence) -> GateReport` — require probe read/write evidence, no recall tool calls/announcements in raw output after the saved offset, successful phase/envelope records and actual Pi session continuity.
 
-- [ ] **Step 1: Write tests for smoke boundaries before production code.**
+- [x] **Step 1: Write tests for smoke boundaries before production code.**
 
 Test missing explicit development model, nonexistent probe file, probe path escaping repo, non-scout mutation in derived config, fake executable refusal, missing provider, nonzero exit, missing receipt, empty artifact list, wrong recall answer, tool use during recall, changed Pi session identity, and wrong trace DB. For each case assert nonzero or a failed gate; no “skip because credentials missing.” Tests patch transport or use the double only in `test-control-plane` and are not live acceptance evidence.
 
@@ -640,7 +663,7 @@ Respond with only GenericOutput JSON: status, summary, artifacts, notes_for_next
 
 `user.md` renders the existing `prompt`, `previous_envelope`, and `context_handoff_dir` variables and includes a valid GenericOutput JSON example. Do not alter the scout's production prompt to accommodate a test.
 
-- [ ] **Step 2: Implement the two-call ADW using real runtime primitives.**
+- [x] **Step 2: Implement the two-call ADW using real runtime primitives.**
 
 `adw_smoke.py` uses the same dependency header as other ADWs. Resolve/validate config and probe path before creating a session. Record the request in an engineer phase. Mint a fresh 32-hex-character nonce. Use the same smoke agent in two agent phases, each with zero gate retries:
 
@@ -663,7 +686,7 @@ Check the Pi JSONL session headers and parent-linked message entries, not only `
 
 Receipt creation is the smoke's real file-write check. It does not certify builder output, product-code edits, repairs or the application's full test suite. Pi's ambient user resources remain part of the real runtime; record their non-secret configuration effects when diagnosing failures. A fresh Git directory and a tools list are not an OS sandbox. A model that violates the bounded task fails the smoke; do not loosen the gate to get a green run.
 
-- [ ] **Step 3: Implement the developer launcher with owned-process supervision.**
+- [x] **Step 3: Implement the developer launcher with owned-process supervision.**
 
 The root script requires `SSSF_SMOKE_MODEL` and a real `PI_PATH` or PATH `pi`, records their non-secret identifiers, creates a fresh example target via Task 3, and derives a local config without touching starter model defaults or user files. Keep normal Pi authentication available for this explicitly live lane; never read or copy `auth.json` into the target or report. Set `ENGINEER_NAME=sssf-smoke` in the child environment so baseline output does not record the operator's personal Git identity.
 
@@ -677,7 +700,7 @@ After exit require: subprocess exit zero, exact ADW ID success in the selected D
 
 Store raw evidence under gitignored `test-results/real-pi/` with restricted permissions. Print only model, run ID, statuses, paths, measured durations and reported usage/cost. Do not print credentials, inherited environment, raw provider failures or source contents to the committed report.
 
-- [ ] **Step 4: Wire the two commands and complete the recipe contract.**
+- [x] **Step 4: Wire the two commands and complete the recipe contract.**
 
 Installed recipe:
 
@@ -695,7 +718,7 @@ smoke-real-pi:
 
 Add `smoke-real-pi` to the exact canonical assertion. Test the installed route with the argv recorder and test the developer supervisor with synthetic child processes under the control-plane label. Developer `just test` must never invoke this live command implicitly.
 
-- [ ] **Step 5: Verify offline implementation and commit.**
+- [x] **Step 5: Verify offline implementation and commit.**
 
 Run all populated offline lanes. Verify three supervisor outcomes deterministically: valid live-style observation before child release, child failure before DB creation, and timeout with owned child cleanup. Test that an unrelated listener/process is untouched. Commit as `feat: add explicit real-pi smoke acceptance command`.
 
@@ -707,7 +730,7 @@ Do not claim live acceptance in this commit solely because these tests pass. The
 
 **Files:** Create `docs/testing.md`, `docs/baselines/m1-acceptance.md`; update `README.md`, `.claude/skills/sssf/cookbooks/install.md`, `.claude/skills/sssf/templates/justfile` comments and `docs/superpowers/specs/2026-09-12-factory-evolution-design.md` only for the clarifications below.
 
-- [ ] **Step 1: Document executable commands and the installation distinction.**
+- [x] **Step 1: Document executable commands and the installation distinction.**
 
 `docs/testing.md` must explain:
 
@@ -723,7 +746,7 @@ Do not claim live acceptance in this commit solely because these tests pass. The
 
 Make the spec consistent with measured M0 evidence: name the equivalent two recipes used when `demo` was absent, mark the M0 stage as recorded, and explain that M1 drift assertions cover freshly stamped files rather than silently updating users' custom Justfiles. Do not rewrite old logs or claim the originally attempted `just demo` succeeded.
 
-- [ ] **Step 2: Run every offline lane and inspect the full results.**
+- [x] **Step 2: Run every offline lane and inspect the full results.**
 
 ```bash
 just test-unit
@@ -735,7 +758,7 @@ git diff --check
 
 Record the actual counts and expectation IDs. Ordinary suite skips, empty discovery, unexpected errors, and unexpected known-gap successes block completion. Record all dependency versions from the locked environment, not remembered M0 versions.
 
-- [ ] **Step 3: Confirm a model, then run the real lane.**
+- [x] **Step 3: Confirm a model, then run the real lane.**
 
 Ask the operator to choose a current exact `provider/model-id` from their real Pi catalog and confirm live execution. Do not inspect credentials or assume M0's provider is still authenticated. The operator sets `SSSF_SMOKE_MODEL`; the execution command is then exactly:
 
@@ -745,7 +768,7 @@ just smoke-real-pi
 
 Missing model, credentials, Pi executable, catalog entry or failed provider execution is a failed prerequisite/run, not a pass. Do not retry a paid run silently or swap providers. Diagnose a failure from retained local evidence and report the blocker. Real-Pi acceptance must pass before M1 is marked complete.
 
-- [ ] **Step 4: Verify preservation and write a sanitized report.**
+- [x] **Step 4: Verify preservation and write a sanitized report.**
 
 Required report facts: current factory commit, pinned example SHA, lockfile hash, actual command, Pi/Python/uv/Just versions, model/provider identifier, run ID, exact exit statuses, unit/install/control-plane counts, known-gap IDs/counts, receipt check, live-event observation, session-continuation result, token/cost values reported by Pi, app hash check and owned-process cleanup outcome.
 
@@ -753,7 +776,7 @@ Compare the historical example worktree's HEAD and tracked diff before/after to 
 
 If any acceptance check is blocked or unverified, title the result `M1 incomplete` and name that check. An honest blocker report is useful but does not satisfy the milestone.
 
-- [ ] **Step 5: Review and commit only intended artifacts.**
+- [x] **Step 5: Review and commit only intended artifacts.**
 
 Review template-to-stamped diffs, independent recipe expectations, captured exit codes, process ownership, known-gap disclosures and real-Pi evidence. Use independent review only if a real subagent tool is available; otherwise state that review was inline. No API-only result may be called UI validation.
 

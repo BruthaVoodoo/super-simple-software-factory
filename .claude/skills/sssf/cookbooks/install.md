@@ -10,6 +10,16 @@ uv run .claude/skills/sssf/scripts/install.py
 
 Run from the **target repo root** — the cwd is where everything lands. If the skill lives in your user scope, the path is `~/.claude/skills/sssf/scripts/install.py`.
 
+**Fresh install vs re-install:** a fresh install stamps the canonical recipe set byte-for-byte. Re-running the installer is a *skip-preserving* pass, not a drift repair — your Justfile, roster, and prompts stay untouched and are reported as skipped. Manifest-based updates/safe merges are future work (M3).
+
+## Verify the install
+
+```bash
+just smoke-real-pi --probe-file README.md
+```
+
+Two bounded real-Pi calls (read a file, write a receipt, recall a remembered value with no tools) plus a trace check. Needs your roster's model and real auth; spends a few thousand tokens. The offline regression suite lives in the factory checkout — see `docs/testing.md`.
+
 ## What gets stamped
 
 `install.py` copies `templates/` into the cwd:

@@ -213,7 +213,9 @@ Factory Lab dogfooding uses real Pi, the generated Justfile, and the visualizer.
 2. Fetch the `example` branch.
 3. Create a separate worktree at a path outside the factory source checkout.
 4. Inspect the stamped files, Justfile, prompts, config, and existing traces.
-5. Run `just demo` from the example worktree. This is the fixed M0 real-Pi smoke path because it exercises the existing read-only `adw_prompt` and `adw_scout` workflows.
+**Recorded M0 outcome (2026-09-13):** the pinned example's Justfile had no `demo` recipe, so the recorded equivalent was the two read-only runs `demo` now composes — `uv run adws/adw_prompt.py … --agent scout` followed by `uv run adws/adw_scout.py …` — executed with a local model override from the example worktree. This is a recorded observation, not a certification of every Pi feature. The historical Justfile was not altered to make the record appear different. M1's recipe drift assertions cover freshly stamped files; they do not silently update users' custom Justfiles (re-install preserves them byte-for-byte and reports skips).
+
+5. Run `just demo` from the example worktree. This is the fixed M0 real-Pi smoke path because it exercises the existing read-only `adw_prompt` and `adw_scout` workflows. See the recorded M0 outcome above for what actually ran.
 6. Start the visualizer against the example trace database with `just obs`. If Bun dependencies or a browser are unavailable, record the exact prerequisite failure in the baseline report; this blocks the visualizer portion of M0 but does not change the real-Pi command.
 7. Write the baseline report.
 

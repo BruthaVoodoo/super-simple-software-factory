@@ -84,6 +84,8 @@ Re-running `install.py` is safe. It skips every file that already exists and rep
 
 Green on the smoke test means the whole path works: config validated, session minted, Pi ran, envelope parsed, events landed in `adws/adw_data/sssf.db`. Fix it there before composing anything larger, because every multi-agent chain rides this exact path.
 
+For development on the factory itself, see `docs/testing.md`: the `just test-*` regression lanes, the fresh vs skip-preserving installation distinction, and the bounded real-Pi acceptance command (`SSSF_SMOKE_MODEL=provider/model-id just smoke-real-pi` in the factory checkout).
+
 ### Which API keys you actually need
 
 That depends on your roster, not on this repo. Every `model:` in `sssf.config.yaml` is written `provider/model-id`, and the provider half decides the key. Which key pi reads for a given provider comes from `~/.pi/agent/models.json`.

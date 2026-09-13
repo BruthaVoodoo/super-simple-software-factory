@@ -40,6 +40,10 @@ def stamp(src: Path, dest: Path, force: bool, stamped: list, skipped: list) -> N
                 continue
             stamp(child, dest / child.name, force, stamped, skipped)
         return
+    # macOS AppleDouble junk carries xattrs on non-HFS volumes; stamping it
+    # would put `._adw_smoke.py`-style garbage into every user's repo.
+    if src.name == ".DS_Store" or src.name.startswith("._") or src.suffix == ".pyc":
+        return
     if dest.exists() and not force:
         skipped.append(str(dest))
         return

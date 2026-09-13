@@ -160,3 +160,6 @@ apps/inkwell/inkwell.db*
 *.mov
 # development worktrees
 .worktrees/
+
+# macOS AppleDouble artifacts (extended attributes on non-HFS volumes)
+._*
