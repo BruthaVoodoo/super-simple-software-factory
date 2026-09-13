@@ -1,0 +1,47 @@
+=== run 1/2: just ask scout (adw_prompt --agent scout) ===
+uv run adws/adw_prompt.py --config adws/adw_sssf_config/sssf.config.local.yaml --agent scout "${@:2}"
+Installed 11 packages in 12ms
+adw_id: c2f79587   engineer bruthavudu
+▶ 01 request  engineer · bruthavudu  Capture the incoming ask
+  · input: reply with a one-line summary of this repo
+  ✓ request 0.0s
+▶ 02 prompt  agent · scout  Send the request straight to scout and parse its envelope
+  ▸ scout opencode/gemini-3.6-flash  session sssf-c2f79587-scout-074f
+  ✓ GenericOutput This repo is the Super Simple Software Factory (SSSF), a Python-driven framework for deterministic, agentic software developer workflows.
+    artifacts: adws/adw_data/sessions/c2f79587/context_handoff/scout_findings.md
+  └ scout used 49,311 tokens · $0.0678
+  ✓ prompt 10.9s
+╭───────── ADW complete ──────────╮
+│  status   ✓ success             │
+│  phases   2/2 passed            │
+│  tokens   49,311                │
+│  cost     $0.0678               │
+│  adw_id   c2f79587              │
+│  db       adws/adw_data/sssf.db │
+│  next     just phases c2f79587  │
+╰─────────────────────────────────╯
+
+=== run 2/2: just scout (adw_scout) ===
+uv run adws/adw_scout.py --config adws/adw_sssf_config/sssf.config.local.yaml "$@"
+Installed 11 packages in 7ms
+adw_id: 1a275b77   engineer bruthavudu
+▶ 01 request  engineer · bruthavudu  Capture the incoming ask
+  · input: list the top-level directories in this repo and what each is for. change nothing.
+  ✓ request 0.0s
+▶ 02 scout  agent · scout  Find and report where things live — change nothing
+  ▸ scout opencode/gemini-3.6-flash  session sssf-1a275b77-scout-b3ca
+  ✓ gate artifacts_exist 1 checked
+    · adws/adw_data/sessions/1a275b77/context_handoff/scout_findings.md — exists, 1.8KB
+  ✓ ScoutOutput Identified and documented all top-level directories in the repository along with their roles in the Super Simple Software Factory.
+    artifacts: adws/adw_data/sessions/1a275b77/context_handoff/scout_findings.md
+  └ scout used 99,723 tokens · $0.1554
+  ✓ scout 28.5s
+╭───────── ADW complete ──────────╮
+│  status   ✓ success             │
+│  phases   2/2 passed            │
+│  tokens   99,723                │
+│  cost     $0.1554               │
+│  adw_id   1a275b77              │
+│  db       adws/adw_data/sssf.db │
+│  next     just phases 1a275b77  │
+╰─────────────────────────────────╯
