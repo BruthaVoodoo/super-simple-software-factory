@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import signal
 import sqlite3
+import time
 import unittest
 
 from tests.support.imports import bootstrap
@@ -18,6 +19,8 @@ from tests.support.runtime import (  # noqa: E402
     supervised_adw,
     wait_until,
 )
+from adw_modules import agents, git_helper, session  # noqa: E402
+from tests.support.factory import git  # noqa: E402
 
 PARKED_ENVELOPE = '{"status":"success","summary":"parked"}'
 
@@ -27,6 +30,69 @@ def _parked_scenario(release_path: str) -> dict:
         "text": PARKED_ENVELOPE, "exit_code": 0, "usage": SCENARIO_USAGE,
         "events": [], "writes": [], "wait_for_release": release_path,
     }]}
+
+
+class BranchIsolationTests(RuntimeTestCase):
+    """session.ensure installs process-global signal handlers — acceptable
+    here because these runs finish cleanly within the test."""
+
+    def test_isolated_run_commits_on_its_own_branch(self):
+        original_branch = self.branch
+        original_sha = git(self.target, ["rev-parse", "HEAD"], self.env).strip()
+        cfg = agents.load_config()
+        run = session.ensure(cfg, adw_id="isol8run", isolate_branch=True)
+        self.addCleanup(run.tracer.conn.close)
+        self.assertEqual(git_helper.current_branch(), "sssf/isol8run")
+        (self.target / "feature.txt").write_text("run work\n")
+        git_helper.commit_paths(run.changed_paths(), "run work")
+        # The operator's branch ref did not move.
+        self.assertEqual(
+            git(self.target, ["rev-parse", original_branch], self.env).strip(),
+            original_sha)
+
+    def test_read_only_runs_stay_in_place(self):
+        before = self.branch
+        cfg = agents.load_config()
+        run = session.ensure(cfg, adw_id="inplace1")
+        self.addCleanup(run.tracer.conn.close)
+        self.assertEqual(git_helper.current_branch(), before)
+
+
+class InterruptedChildTerminationTests(RuntimeTestCase):
+    """M2-PROC-01 — interrupting an ADW must actually terminate the
+    coding-agent child, not merely mark the process row ended."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        never = self._scratch / "release" / "never-created"
+        self.handle = supervised_adw(self, "proc-run",
+                                     _parked_scenario(str(never)))
+        self.assertTrue(wait_until(self._double_parked, 30),
+                        "the double never parked inside the supervised ADW")
+        with sqlite3.connect(self.handle.db_path) as conn:
+            (self.double_pid,) = conn.execute(
+                "SELECT pid FROM processes WHERE adw_id=? AND kind='agent' "
+                "AND ended_at IS NULL", (self.handle.adw_id,)).fetchone()
+        self.handle.signal(signal.SIGTERM)
+        self.exit_code = self.handle.wait(timeout=5)
+
+    def _double_parked(self) -> bool:
+        try:
+            with sqlite3.connect(self.handle.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT pid FROM processes WHERE adw_id=? AND kind='agent' "
+                    "AND ended_at IS NULL", (self.handle.adw_id,)).fetchall()
+        except sqlite3.OperationalError:
+            return False        # the child has not created the schema yet
+        return bool(rows)
+
+    def test_interrupted_adw_child_actually_terminates(self):
+        self.assertEqual(self.exit_code, 143)
+        deadline = time.monotonic() + 5.0
+        while pid_alive(self.double_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(pid_alive(self.double_pid),
+                         "the trace says ended, but the coding-agent child is alive")
 
 
 class SupervisedSignalTests(RuntimeTestCase):

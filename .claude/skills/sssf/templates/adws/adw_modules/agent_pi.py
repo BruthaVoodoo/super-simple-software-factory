@@ -231,6 +231,11 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
 
     raw_path = Path(request.raw_output_path)
     raw_path.parent.mkdir(parents=True, exist_ok=True)
+    # stderr drains to a FILE, never a pipe: a child that fills a stderr pipe
+    # while stdout stays open would deadlock this loop (observed as
+    # M2-PROC-02 — nothing drained stderr until stdout EOF, which never came).
+    # Appended, so retries accumulate one log per agent dir.
+    stderr_path = raw_path.parent / (raw_path.name + ".stderr")
 
     result = PiResult(session_id=request.session_id,
                       context_window=context_window(provider, model_id))
@@ -240,10 +245,11 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
     # EOF. That failure is silent and total: no request goes out, no bytes come
     # back, and the ADW blocks on a read loop with nothing to read. Observed as
     # a run that sat idle at 0% CPU with an empty raw_output.jsonl.
-    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, bufsize=1, cwd=request.cwd,
-                               env=operator_env())
+    with stderr_path.open("ab") as err:
+        process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=err,
+                                   text=True, bufsize=1, cwd=request.cwd,
+                                   env=operator_env())
     if on_spawn:
         on_spawn(process.pid)
     with raw_path.open("a") as raw:
@@ -277,10 +283,10 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
             if on_event:
                 on_event(event)
 
-    stderr = process.stderr.read() if process.stderr else ""
     result.returncode = process.wait()
     if on_exit:
         on_exit(process.pid)
     if result.returncode != 0 and not result.text:
-        raise RuntimeError(f"pi exited {result.returncode}: {stderr.strip()[-800:]}")
+        stderr_tail = stderr_path.read_text(errors="replace")[-800:]
+        raise RuntimeError(f"pi exited {result.returncode}: {stderr_tail.strip()}")
     return result

@@ -268,6 +268,46 @@ class StreamingHandshakeTests(DoubleTestCase):
         self.assertEqual(records[0]["tool_call_id"], "call-stream")
 
 
+class StderrFloodTests(DoubleTestCase):
+    """M2-PROC-02 — a child that fills the stderr pipe while stdout stays
+    open must not deadlock the transport."""
+
+    def test_transport_completes_despite_a_flooded_stderr(self):
+        flooder = self._scratch / "flood-pi.py"
+        flooder.write_text(
+            "import sys\n"
+            "sys.stderr.write('e' * 200_000)\n"   # > pipe capacity (64KiB)
+            "sys.stderr.flush()\n")                # then exits promptly
+        self.shim = install_python_entrypoint(self._scratch / "bin" / "flood-pi",
+                                              flooder)
+        import signal as signal_module
+        with mock.patch.object(agent_pi, "PI_PATH", str(self.shim)), \
+             mock.patch.object(agent_pi, "_pi_catalog",
+                               return_value=[("fixture", "fixture-model", 32000)]):
+            holder: dict = {}
+            pids: list[int] = []
+
+            def transport() -> None:
+                try:
+                    holder["result"] = agent_pi.run(self._request(),
+                                                    on_spawn=pids.append)
+                except BaseException as error:   # a transport failure also counts
+                    holder["error"] = error
+
+            thread = threading.Thread(target=transport, daemon=True)
+            thread.start()
+            try:
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive(),
+                                 "transport still blocked on a flooded stderr")
+            finally:
+                for pid in pids:                    # owned child cleanup
+                    try:
+                        os.kill(pid, signal_module.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+
 class CatalogResolutionTests(unittest.TestCase):
     """resolve_model against a fixed catalog — no subprocess, no fixtures."""
 

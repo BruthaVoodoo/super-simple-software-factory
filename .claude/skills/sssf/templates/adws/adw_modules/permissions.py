@@ -31,7 +31,9 @@ Two keys drive it, both in sssf.config.yaml:
 
 from __future__ import annotations
 
+import hashlib
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -46,25 +48,76 @@ def _git(args: list[str], cwd) -> str:
     result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     return result.stdout if result.returncode == 0 else ""
 
+_GREEDY_READ = 1 << 20      # 1 MiB
 
-def snapshot(run) -> dict[str, str]:
-    """Fingerprint every path the working tree currently differs on.
 
-    Tracked files carry their numstat counts, so an edit to an already-dirty
-    file still registers as a change. Untracked files are listed by name.
-    Gitignored paths never appear, which is why the session runtime under
-    `data_dir` — where handoff files legitimately land — needs no special case.
+def _fingerprint(path: Path) -> str:
+    """Content fingerprint for one path.
+
+    Files up to 1 MiB hash whole. Larger files hash size + head + tail — an
+    approximation that still sees edits at either end and size changes, while
+    keeping snapshot cost bounded on big repos. Replaces the M1 numstat
+    fingerprint, which could not see same-shape rewrites of dirty files, and
+    the name-only marker for untracked files, which could not see their
+    content change at all.
     """
+    try:
+        stat = path.stat()
+        with path.open("rb") as handle:
+            head = handle.read(_GREEDY_READ)
+            if stat.st_size <= _GREEDY_READ:
+                digest = hashlib.sha256(head).hexdigest()
+            else:
+                handle.seek(-_GREEDY_READ, 2)
+                tail = handle.read(_GREEDY_READ)
+                digest = hashlib.sha256(
+                    f"{stat.st_size}:".encode() + head + tail).hexdigest()
+        return f"content:{digest}"
+    except OSError:
+        return "unreadable"
+
+
+def _others(run, include_ignored: bool) -> list[str]:
+    """Untracked paths relative to the repo root; ignored ones too on request."""
+    args = ["ls-files", "--others", "-z"]
+    if not include_ignored:
+        args.append("--exclude-standard")
+    return [p for p in _git(args, run.repo_root).split("\0") if p]
+
+
+def _runtime_prefixes(run) -> list[str]:
+    if not hasattr(run, "cfg") or run.cfg is None:
+        return []
+    return always_writable(run.cfg)
+
+
+def snapshot(run, save_dir=None) -> dict[str, str]:
+    """Fingerprint every path whose state can differ: tracked-dirty,
+    untracked, and ignored files OUTSIDE the always-writable runtime dir.
+
+    With `save_dir`, each untracked/ignored file's bytes are mirrored there
+    (relative paths preserved) so a later rollback can restore them
+    byte-for-byte — Git only knows how to restore tracked files. Call it with
+    save_dir for the BEFORE snapshot in agents.execute.
+    """
+    root = Path(run.repo_root)
+    runtime = _runtime_prefixes(run)
     fingerprints: dict[str, str] = {}
     for line in _git(["diff", "HEAD", "--numstat"], run.repo_root).splitlines():
         fields = line.split("\t")
         if len(fields) >= 3:
             path = fields[-1].strip()
-            fingerprints[path] = f"{fields[0]},{fields[1]}"
-    for path in _git(["ls-files", "--others", "--exclude-standard"],
-                     run.repo_root).splitlines():
-        if path.strip():
-            fingerprints[path.strip()] = "untracked"
+            fingerprints[path] = _fingerprint(root / path)
+    for relative in _others(run, include_ignored=True):
+        path = root / relative
+        if any(_matches(relative, prefix) for prefix in runtime):
+            continue                      # the runtime is always writable
+        if path.is_file() and not path.is_symlink():
+            fingerprints[relative] = _fingerprint(path)
+            if save_dir is not None:
+                destination = save_dir / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
     return fingerprints
 
 
@@ -142,11 +195,24 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
     when the agent started is left exactly as it is: the operator had
     uncommitted work there, and discarding it to tidy up would be the same harm
     this module exists to prevent, committed by the cleanup instead of the agent.
+
+    Untracked and ignored paths (never known to Git) are restored from the
+    bytes the BEFORE snapshot saved under the run's permission_state dir —
+    the same files could not be recovered any other way.
     """
     if path in before:
-        # Already dirty beforehand. If it is gone from the diff now, the agent
-        # reverted an engineer's uncommitted work and the content is not ours
-        # to reconstruct — say so loudly rather than pretend it was handled.
+        state_dir = Path(run.session_dir) / "permission_state" \
+            if hasattr(run, "session_dir") else None
+        if state_dir is not None:
+            saved = state_dir / path
+            if saved.is_file():                      # untracked/ignored: restorable
+                destination = Path(run.repo_root) / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(saved, destination)
+                return "restored"
+        # No saved copy: a tracked pre-existing dirty file. If it is gone from
+        # the diff now, the agent reverted an engineer's uncommitted work and
+        # the content is not ours to reconstruct — say so loudly.
         return "REVERTED-BY-AGENT (uncommitted work lost, cannot restore)" \
             if path not in after else "left as-is (was already modified)"
     if after.get(path) == "untracked":

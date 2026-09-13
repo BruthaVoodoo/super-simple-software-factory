@@ -1,12 +1,10 @@
 """Run one offline SSSF test lane.
 
-Usage: python scripts/checks.py {unit|install|control-plane|known-gaps}
+Usage: python scripts/checks.py {unit|install|control-plane}
 
-Ordinary lanes fail on skips, expected failures, or unexpected successes —
-they are certification lanes. The known-gaps lane permits declared expected
-failures (disclosed M2 defect reproductions) but still fails on unexpected
-successes: a "fixed" known gap means the decorator must be removed, and an
-unexpected success here is how that shows up.
+Every lane is a certification lane: it fails on skips, expected failures, or
+unexpected successes. Disclosed defects are fixed and covered by ordinary
+tests (see docs/known-gaps.md for the retired M1 gap ledger).
 
 These guards are tripwires inside this process, not an OS sandbox.
 """
@@ -26,7 +24,6 @@ LANES = {
     "unit": "tests.unit",
     "install": "tests.install",
     "control-plane": "tests.control_plane",
-    "known-gaps": "tests.known_gaps",
 }
 
 
@@ -56,8 +53,6 @@ def main() -> int:
         print(f"  unexpected success: {test.id()} — update docs/known-gaps.md")
 
     clean = not (result.failures or result.errors or result.unexpectedSuccesses)
-    if lane == "known-gaps":
-        return 0 if clean else 1
     return 0 if (clean and not result.skipped and not result.expectedFailures) else 1
 
 

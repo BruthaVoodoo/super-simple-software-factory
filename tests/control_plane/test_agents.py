@@ -151,6 +151,35 @@ class BehaviorTableTests(RuntimeTestCase):
                          "process row says ended but the child is still alive")
 
 
+class FailureTraceTests(RuntimeTestCase):
+    def test_exhausted_corrections_record_agent_end_usage(self):
+        # M2-TRACE-01 — flipped from tests/known_gaps/test_failures.py
+        result = execute_scenario(self, responses("nope", "nope", "nope"),
+                                  ScenarioOptions())
+        self.assertIn("never produced valid", str(result.error))
+        agent_end = [event for event in result.events() if event[0] == "agent_end"]
+        self.assertEqual(len(agent_end), 1)
+        self.assertEqual(agent_end[0][3], 36)   # 3 sends x 12 tokens
+
+
+class EnforcementOnFailureTests(RuntimeTestCase):
+    """M2-PERM-04: enforcement runs even when parsing exhausts."""
+
+    def test_unauthorized_write_before_parse_exhaustion_still_breaches(self):
+        first = {"text": "nope", "exit_code": 0, "usage": SCENARIO_USAGE,
+                 "events": [], "writes": [{"path": "sample.txt",
+                                           "text": "vandalized"}]}
+        scenario = {"responses": [first, *responses("nope", "nope")["responses"]]}
+        result = execute_scenario(self, scenario, ScenarioOptions(writes=[]))
+        self.assertIsInstance(result.error, permissions.PermissionBreach)
+        self.assertEqual((self.target / "sample.txt").read_text(), "original\n")
+
+    def test_parse_exhaustion_without_breach_raises_the_original_error(self):
+        result = execute_scenario(self, responses("nope", "nope", "nope"),
+                                  ScenarioOptions())
+        self.assertIn("never produced valid GenericOutput JSON", str(result.error))
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

@@ -93,6 +93,92 @@ class PermittedPathTests(unittest.TestCase):
             ["dirty.txt", "gone.txt", "new.txt", "untracked"])
 
 
+class FingerprintTests(RuntimeTestCase):
+    def test_same_shape_rewrite_of_dirty_file_is_reported(self):
+        # M2-PERM-01
+        run_stub = SimpleNamespace(repo_root=self.target, cfg=config())
+        (self.target / "sample.txt").write_text("line one\nline two\n")
+        before = permissions.snapshot(run_stub)
+        (self.target / "sample.txt").write_text("line ONE\nline TWO\n")
+        after = permissions.snapshot(run_stub)
+        self.assertIn("sample.txt", permissions.changed_paths(before, after))
+
+    def test_untracked_content_change_is_reported(self):
+        # M2-PERM-02
+        run_stub = SimpleNamespace(repo_root=self.target, cfg=config())
+        (self.target / "notes.txt").write_text("version one\n")
+        before = permissions.snapshot(run_stub)
+        (self.target / "notes.txt").write_text("version two\n")
+        after = permissions.snapshot(run_stub)
+        self.assertIn("notes.txt", permissions.changed_paths(before, after))
+
+    def test_runtime_directory_is_never_fingerprinted(self):
+        run_stub = SimpleNamespace(repo_root=self.target, cfg=config())
+        envelope = (self.target / "adws/adw_data/sessions/x/envelope.json")
+        envelope.parent.mkdir(parents=True, exist_ok=True)
+        envelope.write_text("{}")
+        self.assertNotIn("adws/adw_data/sessions/x/envelope.json",
+                         permissions.snapshot(run_stub))
+
+
+class RollbackRestoreTests(RuntimeTestCase):
+    """Restore semantics are driven through _roll_back directly: enforce()
+    only rolls back BREACH paths, and these tests exercise the restore
+    mechanism itself (the breach path is covered by EnforcementTests)."""
+
+    def test_modified_untracked_file_is_restored_from_saved_bytes(self):
+        run_stub = SimpleNamespace(
+            repo_root=self.target, cfg=config(),
+            session_dir=self.target / "adws/adw_data/sessions/run-1")
+        state = run_stub.session_dir / "permission_state"
+        (self.target / "notes.txt").write_text("version one\n")
+        before = permissions.snapshot(run_stub, save_dir=state)
+        (self.target / "notes.txt").write_text("vandalized\n")
+        outcome = permissions._roll_back(
+            run_stub, "notes.txt", before, permissions.snapshot(run_stub))
+        self.assertEqual(outcome, "restored")
+        self.assertEqual((self.target / "notes.txt").read_text(), "version one\n")
+
+    def test_deleted_untracked_file_is_restored_from_saved_bytes(self):
+        run_stub = SimpleNamespace(
+            repo_root=self.target, cfg=config(),
+            session_dir=self.target / "adws/adw_data/sessions/run-1")
+        state = run_stub.session_dir / "permission_state"
+        (self.target / "notes.txt").write_text("keep me\n")
+        before = permissions.snapshot(run_stub, save_dir=state)
+        (self.target / "notes.txt").unlink()
+        outcome = permissions._roll_back(
+            run_stub, "notes.txt", before, permissions.snapshot(run_stub))
+        self.assertEqual(outcome, "restored")
+        self.assertEqual((self.target / "notes.txt").read_text(), "keep me\n")
+
+
+class IgnoredPathTests(RuntimeTestCase):
+    def test_ignored_file_modification_outside_runtime_is_caught(self):
+        # M2-PERM-03
+        run_stub = SimpleNamespace(repo_root=self.target, cfg=config(),
+                                   session_dir=self.target / "adws/adw_data/sessions/run-1")
+        with (self.target / ".gitignore").open("a") as gitignore:
+            gitignore.write("\nignored.txt\n")
+        (self.target / "ignored.txt").write_text("version one\n")
+        before = permissions.snapshot(run_stub)
+        (self.target / "ignored.txt").write_text("version two\n")
+        with self.assertRaises(permissions.PermissionBreach):
+            permissions.enforce(run_stub, None, agent(writes=[]), before)
+
+    def test_ignored_file_with_explicit_permission_is_allowed(self):
+        run_stub = SimpleNamespace(repo_root=self.target, cfg=config(),
+                                   session_dir=self.target / "adws/adw_data/sessions/run-1")
+        with (self.target / ".gitignore").open("a") as gitignore:
+            gitignore.write("\nignored.txt\n")
+        (self.target / "ignored.txt").write_text("version one\n")
+        before = permissions.snapshot(run_stub)
+        (self.target / "ignored.txt").write_text("version two\n")
+        writer = agent(name="builder", writes=["ignored.txt"])
+        self.assertEqual(permissions.enforce(run_stub, None, writer, before),
+                         ["ignored.txt"])
+
+
 class EnforcementTests(RuntimeTestCase):
     """enforce() against the real scratch repo: detect, restore, then raise."""
 

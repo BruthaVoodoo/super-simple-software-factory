@@ -19,20 +19,16 @@ pyyaml, python-dotenv, rich) — there is no separate test framework.
 | `just test-unit` | `tests/unit/` | config/contract/gate/permission/SQLite/trace behavior of the template modules | that a real model or real Pi did anything |
 | `just test-install` | `tests/install/` | the real installer against scratch targets and the pinned Inkwell app | safe upgrades to every existing project (M3) |
 | `just test-control-plane` | `tests/control_plane/` | run lifecycle, retries, permissions, usage persistence — Pi is a fixture double | Pi authentication or real model behavior |
-| `just test-known-gaps` | `tests/known_gaps/` | reproductions of disclosed M2 defects (expected failures) | that those defects are fixed — see `docs/known-gaps.md` |
-| `just test` | the first three lanes | the ordinary suites | the known-gap lane, which is reported separately |
-| `just smoke-real-pi` (dev) | `scripts/smoke-real-pi.py` | the real model executes the smoke probe/recall in a fresh target | UI rendering (M5) or the full SDLC |
+| `just test` | all three lanes | the full offline certification suite | a real model — run the smoke command for that || `just smoke-real-pi` (dev) | `scripts/smoke-real-pi.py` | the real model executes the smoke probe/recall in a fresh target | UI rendering (M5) or the full SDLC |
 
 ## What the ordinary suites guarantee
 
 - Child subprocesses receive a credential-free environment, never the
   operator's: no API keys, proxies, or pi configuration reach test children.
 - Offline lanes tripwire network access and unexpected subprocess launches.
-  Ordinary lanes contain zero skips and zero expected failures; a skip is an
-  error, not a pass.
-- The known-gap lane is separate by design. It enumerates expected failures
-  (disclosed M2 defects) and treats unexpected successes as lane errors. Do
-  not cite it as passing safety tests.
+  Every lane contains zero skips and zero expected failures; a skip is an
+  error, not a pass. The M1-disclosed defects are fixed (see
+  `docs/known-gaps.md` for the retired ledger); their tests are ordinary now.
 
 ## Fresh install vs re-install vs update
 
@@ -90,7 +86,8 @@ child (owned process group, 180-second bound).
 
 ## Scope limits
 
-- M1 does not certify the M2 safety fixes listed in `docs/known-gaps.md`.
+- M2's fixes are covered by ordinary tests; the retired defect ledger is in
+  `docs/known-gaps.md`.
 - M1 makes no visualizer/UI acceptance claim (M5 owns UI work).
 - `.claude/skills/sssf` is the resource location for M1, not a requirement
   for the Claude application.

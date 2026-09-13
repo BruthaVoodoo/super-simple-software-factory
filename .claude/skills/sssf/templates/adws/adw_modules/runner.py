@@ -13,7 +13,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import agents, git_helper
+from . import agents, git_helper, permissions
 from .console import Console
 from .data_types import AgentCall, EnvelopeBase, EventRecord, Phase, PhaseParams
 from .utils import ensure_dir, now_iso
@@ -49,10 +49,17 @@ class Run:
         self.phases: list[Phase] = []
         self.tokens = 0
         self.cost = 0.0
+        # Live coding-agent child pids, fed by the same callbacks that record
+        # trace rows. An interrupt must terminate the ACTUAL children, not
+        # only close their db rows.
+        self._children: set[int] = set()
         self._seq = tracer.max_phase_seq(adw_id)   # a joined run continues the sequence
         self.repo_root = git_helper.repo_root()    # where every agent is spawned to work
         self.session_dir = ensure_dir(Path(cfg.defaults.data_dir) / "sessions" / adw_id)
         self.context_handoff_dir = ensure_dir(self.session_dir / "context_handoff")
+        # The tree at run start. A commit phase stages ONLY what changed since
+        # this baseline — pre-existing operator work is never swept in.
+        self.tree_baseline = permissions.snapshot(self)
         self._agent_map_path = self.session_dir / "agent_map.json"
         self.agent_map: dict = (json.loads(self._agent_map_path.read_text())
                                 if self._agent_map_path.exists() else {})
@@ -61,6 +68,20 @@ class Run:
     def save_agent_map(self, agent: str, entry: dict) -> None:
         self.agent_map[agent] = entry
         self._agent_map_path.write_text(json.dumps(self.agent_map, indent=2))
+
+    # ── child processes (exact recorded pids; no name matching) ──────────
+    def register_child(self, pid: int) -> None:
+        self._children.add(pid)
+
+    def child_exited(self, pid: int) -> None:
+        self._children.discard(pid)
+
+    # ── commit scope (only what THIS run introduced) ──────────────────────
+    def changed_paths(self) -> list[str]:
+        """Paths this run introduced since its baseline — the only thing a
+        commit phase may stage. Runtime paths are excluded by snapshot."""
+        return permissions.changed_paths(self.tree_baseline,
+                                         permissions.snapshot(self))
 
     # ── usage (run totals mirror what the tracer accumulates in sqlite) ─────
     def add_usage(self, tokens: int, cost: float) -> None:

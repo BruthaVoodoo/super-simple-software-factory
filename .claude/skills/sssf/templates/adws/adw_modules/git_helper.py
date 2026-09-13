@@ -40,15 +40,23 @@ def repo_root() -> Path:
     return Path.cwd().resolve()
 
 
-def commit_all(message: str) -> str:
-    """Stage the working tree and commit it. Returns the new short sha."""
+def commit_paths(paths: list[str], message: str) -> str:
+    """Stage ONLY the given paths and commit them.
+
+    A run must never stage pre-existing operator work: the caller derives
+    `paths` from run snapshots (`run.changed_paths()`). An empty list is an
+    error, not an `add -A` — unrelated pre-existing changes stay untouched.
+    """
     if not is_repo():
         raise RuntimeError(
             "not a git repository — a commit phase needs one. Run `git init` in the "
             "repo root (and make a first commit) before running an ADW that commits.")
-    _git("add", "-A")
+    if not paths:
+        raise RuntimeError(
+            "nothing to commit — this run changed no paths it may commit")
+    _git("add", "--", *paths)
     if not _git("status", "--porcelain"):
-        raise RuntimeError("nothing to commit — the preceding phases changed no files")
+        raise RuntimeError("nothing to commit — the staged paths had no changes")
     _git("commit", "-m", message)
     return _git("rev-parse", "--short", "HEAD")
 

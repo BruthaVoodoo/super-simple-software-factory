@@ -2,6 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development if a subagent tool is actually available; otherwise use superpowers:executing-plans. Execute sequentially with review between tasks. Steps use checkbox (`- [ ]`) syntax for tracking. Do not promise independent subagent review when it did not occur.
 
+## Execution status (all tasks complete)
+
+- **Work location:** `.worktrees/m2`, branch `feat/m2-safety-lifecycle` (from `main` @ cc0161c). Inline execution via executing-plans; review was inline (no subagent tool).
+- Task 1 (`a1d2415`) content fingerprints + restorable untracked state — PERM-01/02 fixed. 3 unit tests added.
+- Task 2 (`74f79c9`) ignored-path enforcement + enforcement on failure exits — PERM-03/04 fixed. Enforcement found already-green for detection (Task 1's snapshot covered it); the exit-path restructure fixed the audit gap.
+- Task 3 (`c04c570`) `agent_end` on failed calls — TRACE-01 fixed (helper landed with Task 2; test flipped green immediately).
+- Task 4 (`f75e83d`) commit scoping — `commit_paths` + `Run.tree_baseline`/`changed_paths()`; `commit_all` deleted; 4 ADW call sites. Learnings: test baselines must precede the run's work.
+- Task 5 (`8e80a5b`) branch isolation — `session.ensure(isolate_branch=True)` on the 4 committing ADWs; operator branch ref never moves.
+- Task 6 (`2ec7ce9`) child termination on interrupt — PROC-01 fixed. Learnings: the signal handler must reap children itself (`waitpid WNOHANG`) — the interrupted main thread cannot run on_exit callbacks.
+- Task 7 (`8563ff9`) stderr drains to file — PROC-02 fixed; known-gaps lane retired (checks.py/justfile/docs updated). Learnings: the flood test's child must exit after flooding — a sleeping child with open stdout is just a hung child, which is bounded by run timeouts, not by stderr draining.
+- Task 8 — lanes twice green (108/21/47), `git diff --check` clean, real smoke PASS (`4549e423`, 10.5s, `evt_e8563d0c5e8b`, 23826 tokens / $0.0023), report in `docs/baselines/m2-acceptance.md`. Historical example worktree verified unchanged.
+
+**M2 COMPLETE. Next: `finishing-a-development-branch` — merge requires operator approval.**
+
 **Goal:** Close every disclosed M1 known gap and harden the factory against losing user work, committing unrelated work, or leaving misleading traces.
 
 **Architecture:** All changes are inside the stamped template modules (`adw_modules/`, `adws/`) plus their call sites. Permission detection moves from numstat fingerprints to content fingerprints, with ignored paths included and the SSSF runtime directory exempt. Enforcement moves inside the failure paths so it runs even when parsing or gates raise. Commit phases stage only the paths the run actually touched, and code-modifying workflows run on a dedicated `sssf/<adw_id>` branch. Interruption terminates recorded child processes; Pi's stderr drains to a file, never a pipe.
@@ -93,7 +107,7 @@ Rollback sources, decided by the BEFORE state:
 - Produces: `snapshot(run, save_dir: Path | None = None) -> dict[str, str]` — same shape as M1; fingerprints are content hashes; ignored-outside-runtime paths included; runtime paths (`always_writable(cfg)`) always excluded.
 - Produces: `enforce(run, phase, agent, before)` — unchanged signature; rollback now restores saved untracked bytes from `before`'s save dir.
 
-- [ ] **Step 1: Write failing tests in `tests/unit/test_permissions.py`**
+- [x] **Step 1: Write failing tests in `tests/unit/test_permissions.py`**
 
 ```python
 class FingerprintTests(RuntimeTestCase):
@@ -158,12 +172,12 @@ class RollbackRestoreTests(RuntimeTestCase):
 
 Delete the now-fixed `NumstatIdenticalRewriteReproduction` and `UntrackedChangeReproduction` classes from `tests/known_gaps/test_safety.py` (their assertions now live here as ordinary tests).
 
-- [ ] **Step 2: Run — expect failures.**
+- [x] **Step 2: Run — expect failures.**
 
 `uv run --locked --group test python -m unittest tests.unit.test_permissions -v`
 Expected: the new tests FAIL (numstat fingerprints / name-only untracked) and the pre-existing 14 PASS.
 
-- [ ] **Step 3: Implement in `permissions.py`**
+- [x] **Step 3: Implement in `permissions.py`**
 
 ```python
 import hashlib
@@ -236,13 +250,13 @@ Parser note: `git ls-files --others -z` emits untracked AND ignored (without `--
 
 Concretely: `_roll_back` restores from `run.session_dir / "permission_state" / path` when that file exists (the test's `run_stub` gets `session_dir=self.target / "adws/adw_data/sessions/run-1"`); outcome word `"restored"`. Order: saved-copy restore first, then `untracked`-delete, then `git checkout --`. `test_permissions.py`'s `run_stub` is updated to `SimpleNamespace(repo_root=self.target, cfg=config(), session_dir=self.target / "adws/adw_data/sessions/run-1")` where restore is exercised.
 
-- [ ] **Step 4: Run — all green.**
+- [x] **Step 4: Run — all green.**
 
 `just test-unit` — 14 pre-existing + 5 new PASS; `just test-control-plane` still green (43). The two deleted known-gap classes shrink the gap lane to 5.
 
-- [ ] **Step 5: Update `docs/known-gaps.md`** — mark M2-PERM-01 and M2-PERM-02 as FIXED (moved to `tests/unit/test_permissions.py`), keeping the table honest (rows for fixed gaps say "fixed in M2, see test_permissions.py").
+- [x] **Step 5: Update `docs/known-gaps.md`** — mark M2-PERM-01 and M2-PERM-02 as FIXED (moved to `tests/unit/test_permissions.py`), keeping the table honest (rows for fixed gaps say "fixed in M2, see test_permissions.py").
 
-- [ ] **Step 6: Commit** — `git add <explicit paths>` (AppleDouble rule): `feat: fingerprint tracked and untracked state for permissions`.
+- [x] **Step 6: Commit** — `git add <explicit paths>` (AppleDouble rule): `feat: fingerprint tracked and untracked state for permissions`.
 
 ---
 
@@ -257,7 +271,7 @@ Concretely: `_roll_back` restores from `run.session_dir / "permission_state" / p
 - Consumes: `permissions.snapshot(run, save_dir=...)`, `permissions.enforce(...)` from Task 1.
 - Produces: `agents.execute` behaves identically on success; on parse/gate failure it runs enforcement first and raises `PermissionBreach` (cause = original error) if the agent overstepped; on clean enforcement the original error propagates.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 In `tests/unit/test_permissions.py`:
 
@@ -311,9 +325,9 @@ class EnforcementOnFailureTests(RuntimeTestCase):
 
 Delete `IgnoredFileEnforcementReproduction` and `EnforcementAfterParseExhaustionReproduction` from `tests/known_gaps/`.
 
-- [ ] **Step 2: Run — expect failures** (M2-PERM-03: `PermissionBreach not raised`; M2-PERM-04: error is `RuntimeError`, not `PermissionBreach`).
+- [x] **Step 2: Run — expect failures** (M2-PERM-03: `PermissionBreach not raised`; M2-PERM-04: error is `RuntimeError`, not `PermissionBreach`).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
 
 `agents.execute` — wrap the send/parse/gate section so enforcement happens on every exit:
 
@@ -347,11 +361,11 @@ Delete `IgnoredFileEnforcementReproduction` and `EnforcementAfterParseExhaustion
 
 Task 3 replaces the `_finish_agent_trace` placeholder with the real `agent_end` emission (or introduce it in this task emitting `agent_end` only if at least one send happened — define `_finish_agent_trace` here to emit `agent_end` with `spent` usage; Task 3's test then verifies its contents). Enforce runtime-dir exemption unchanged; ignored files flow through the snapshot from Task 1, so `permitted()` already applies `writes`/`protected_files` to them.
 
-- [ ] **Step 4: Run — all green.** `just test-unit` and `just test-control-plane` (44).
+- [x] **Step 4: Run — all green.** `just test-unit` and `just test-control-plane` (44).
 
-- [ ] **Step 5: Update `docs/known-gaps.md`** — M2-PERM-03/04 fixed.
+- [x] **Step 5: Update `docs/known-gaps.md`** — M2-PERM-03/04 fixed.
 
-- [ ] **Step 6: Commit** — `feat: enforce permissions on ignored paths and failure exits`.
+- [x] **Step 6: Commit** — `feat: enforce permissions on ignored paths and failure exits`.
 
 ---
 
@@ -365,7 +379,7 @@ Task 3 replaces the `_finish_agent_trace` placeholder with the real `agent_end` 
 - Consumes: `_finish_agent_trace` from Task 2 (emits the `agent_end` event with `tokens=spent.total_tokens` and payload usage).
 - Produces: after any failure with ≥1 send, the events table contains one `agent_end` row for the phase with the accumulated usage.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 class FailureTraceTests(RuntimeTestCase):
@@ -381,9 +395,9 @@ class FailureTraceTests(RuntimeTestCase):
 
 Delete `AgentEndUsageReproduction` from `tests/known_gaps/test_failures.py`.
 
-- [ ] **Step 2: Run — expect failure** (`0 != 1`).
+- [x] **Step 2: Run — expect failure** (`0 != 1`).
 
-- [ ] **Step 3: Implement** — in `_finish_agent_trace`, mirror the success path's `agent_end` emission:
+- [x] **Step 3: Implement** — in `_finish_agent_trace`, mirror the success path's `agent_end` emission:
 
 ```python
 def _finish_agent_trace(run, phase, agent, spent, context) -> None:
@@ -400,11 +414,11 @@ def _finish_agent_trace(run, phase, agent, spent, context) -> None:
 
 The success path replaces its inline `agent_end` block with the same helper (context = `latest`). The success-path gate-failure (`GateFailure`) exit also flows through the `except BaseException` branch, so gate-failures after successful sends record usage too.
 
-- [ ] **Step 4: Run — all green.** `just test-control-plane` (45).
+- [x] **Step 4: Run — all green.** `just test-control-plane` (45).
 
-- [ ] **Step 5: Update `docs/known-gaps.md`** — M2-TRACE-01 fixed.
+- [x] **Step 5: Update `docs/known-gaps.md`** — M2-TRACE-01 fixed.
 
-- [ ] **Step 6: Commit** — `feat: record agent_end usage for failed agent calls`.
+- [x] **Step 6: Commit** — `feat: record agent_end usage for failed agent calls`.
 
 ---
 
@@ -418,7 +432,7 @@ The success path replaces its inline `agent_end` block with the same helper (con
 - Produces: `Run.tree_baseline: dict[str, str]`; `Run.changed_paths() -> list[str]` — paths changed since run start, runtime excluded; `git_helper.commit_paths(paths: list[str], message: str) -> str` — stages ONLY those paths (`git add --`), refuses empty list or empty staging; `commit_all` deleted.
 - Call sites: the four committing ADWs change `git_helper.commit_all(message)` → `git_helper.commit_paths(run.changed_paths(), message)`.
 
-- [ ] **Step 1: Write failing tests in `tests/unit/test_git_scope.py`**
+- [x] **Step 1: Write failing tests in `tests/unit/test_git_scope.py`**
 
 ```python
 """Commit scope: only the run's own paths are staged. Scratch repos only."""
@@ -471,9 +485,9 @@ class CommitScopeTests(RuntimeTestCase):
 
 (with `git_helper_snapshot` a one-line helper calling `permissions.snapshot(run)` — imported from `adw_modules.permissions`.)
 
-- [ ] **Step 2: Run — expect failure** (`commit_paths` does not exist).
+- [x] **Step 2: Run — expect failure** (`commit_paths` does not exist).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
 
 `git_helper.py`:
 
@@ -509,9 +523,9 @@ Delete `commit_all` (all four call sites change in this task; no other callers e
 
 (`runner.py` already imports `agents`; add `permissions`.) The four ADWs: replace `git_helper.commit_all(message)` with `git_helper.commit_paths(run.changed_paths(), message)` (each file's local `run` variable name checked on site).
 
-- [ ] **Step 4: Run — all green.** `just test-unit` (+3) and `just test-control-plane`.
+- [x] **Step 4: Run — all green.** `just test-unit` (+3) and `just test-control-plane`.
 
-- [ ] **Step 5: Commit** — `feat: commit phases stage only the run's own paths`.
+- [x] **Step 5: Commit** — `feat: commit phases stage only the run's own paths`.
 
 ---
 
@@ -524,7 +538,7 @@ Delete `commit_all` (all four call sites change in this task; no other callers e
 **Interfaces:**
 - Produces: `session.ensure(cfg, adw_id=None, *, isolate_branch: bool = False) -> Run` — when set, creates and checks out `sssf/<adw_id>` (idempotent when already on it) before any phase, recording a `log` event `branch_isolated` with the base commit. Original branch ref never moves.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 class BranchIsolationTests(RuntimeTestCase):
@@ -551,9 +565,9 @@ class BranchIsolationTests(RuntimeTestCase):
 
 (`cfg_from_target()` = `agents.load_config()` — cwd is already the target; `session`/`git_helper` imported through the bootstrap. `session.ensure` installs signal handlers — these tests finish the run or rely on process exit; acceptable here because the test process exits at lane end. Note this in the test docstring.)
 
-- [ ] **Step 2: Run — expect failure** (`ensure` has no `isolate_branch`).
+- [x] **Step 2: Run — expect failure** (`ensure` has no `isolate_branch`).
 
-- [ ] **Step 3: Implement** in `session.py`:
+- [x] **Step 3: Implement** in `session.py`:
 
 ```python
 def ensure(cfg: SSSFConfig, adw_id: str | None = None,
@@ -574,9 +588,9 @@ def ensure(cfg: SSSFConfig, adw_id: str | None = None,
 
 The four committing ADWs: `session.ensure(cfg, adw_id, isolate_branch=True)`.
 
-- [ ] **Step 4: Run — all green.** `just test-control-plane` (47).
+- [x] **Step 4: Run — all green.** `just test-control-plane` (47).
 
-- [ ] **Step 5: Commit** — `feat: run committing workflows on a dedicated branch`.
+- [x] **Step 5: Commit** — `feat: run committing workflows on a dedicated branch`.
 
 ---
 
@@ -589,7 +603,7 @@ The four committing ADWs: `session.ensure(cfg, adw_id, isolate_branch=True)`.
 **Interfaces:**
 - Produces: `Run.register_child(pid: int) -> None`, `Run.child_exited(pid: int) -> None`; `agents.execute`'s `on_spawn`/`on_exit` call them alongside the tracer rows; `_finalize_when_killed` TERMs registered children (5s wait, KILL survivors) BEFORE `session_finish`.
 
-- [ ] **Step 1: Flip the known gap into a passing assertion**
+- [x] **Step 1: Flip the known gap into a passing assertion**
 
 Move `InterruptedChildTerminationReproduction` from `tests/known_gaps/test_failures.py` into `tests/control_plane/test_lifecycle.py` as an ordinary test class, decorator removed:
 
@@ -631,9 +645,9 @@ class InterruptedChildTerminationTests(RuntimeTestCase):
                          "the trace says ended, but the coding-agent child is alive")
 ```
 
-- [ ] **Step 2: Run — expect failure** (child alive; the defect is real until the fix lands).
+- [x] **Step 2: Run — expect failure** (child alive; the defect is real until the fix lands).
 
-- [ ] **Step 3: Implement.** `runner.py`: `self._children: set[int] = set()` plus `register_child`/`child_exited`. `agents.execute`'s send:
+- [x] **Step 3: Implement.** `runner.py`: `self._children: set[int] = set()` plus `register_child`/`child_exited`. `agents.execute`'s send:
 
 ```python
         def on_spawn(pid: int) -> None:
@@ -666,11 +680,11 @@ class InterruptedChildTerminationTests(RuntimeTestCase):
         raise SystemExit(128 + signum)
 ```
 
-- [ ] **Step 4: Run — all green.** `just test-control-plane` (48), known-gaps shrinks to 2.
+- [x] **Step 4: Run — all green.** `just test-control-plane` (48), known-gaps shrinks to 2.
 
-- [ ] **Step 5: Update `docs/known-gaps.md`** — M2-PROC-01 fixed.
+- [x] **Step 5: Update `docs/known-gaps.md`** — M2-PROC-01 fixed.
 
-- [ ] **Step 6: Commit** — `feat: terminate registered children on interruption`.
+- [x] **Step 6: Commit** — `feat: terminate registered children on interruption`.
 
 ---
 
@@ -683,7 +697,7 @@ class InterruptedChildTerminationTests(RuntimeTestCase):
 **Interfaces:**
 - Produces: `agent_pi.run` writes child stderr to `<raw_output_path>.stderr` (appended across retries) and reads at most the last 800 characters on failure. No `stderr=PIPE` remains.
 
-- [ ] **Step 1: Flip the known gap into a passing test**
+- [x] **Step 1: Flip the known gap into a passing test**
 
 Move `StderrFloodReproduction` from `tests/known_gaps/test_failures.py` into `tests/control_plane/test_pi_transport.py`, decorator removed, assertion tightened:
 
@@ -730,9 +744,9 @@ class StderrFloodTests(DoubleTestCase):
 
 (`threading`, `os`, `signal`, `mock`, and `install_python_entrypoint` are already imported in that module from Task 6's patterns.)
 
-- [ ] **Step 2: Run — expect failure** (thread still alive at 5s).
+- [x] **Step 2: Run — expect failure** (thread still alive at 5s).
 
-- [ ] **Step 3: Implement** in `agent_pi.run`:
+- [x] **Step 3: Implement** in `agent_pi.run`:
 
 ```python
     stderr_path = raw_path.parent / (raw_path.name + ".stderr")
@@ -750,11 +764,11 @@ class StderrFloodTests(DoubleTestCase):
         raise RuntimeError(f"pi exited {result.returncode}: {stderr_tail.strip()}")
 ```
 
-- [ ] **Step 4: Run — all green.** `just test-control-plane` (49), `tests/known_gaps/` now empty (delete `__init__.py`-carried package? keep the package with a README pointer if `checks.py` requires the directory; `scripts/checks.py` maps the lane — an empty lane must fail with "count zero is an error", so REMOVE the known-gaps lane mapping and the `just test-known-gaps` recipe, updating `justfile`, `scripts/checks.py`, and `docs/testing.md` accordingly).
+- [x] **Step 4: Run — all green.** `just test-control-plane` (49), `tests/known_gaps/` now empty (delete `__init__.py`-carried package? keep the package with a README pointer if `checks.py` requires the directory; `scripts/checks.py` maps the lane — an empty lane must fail with "count zero is an error", so REMOVE the known-gaps lane mapping and the `just test-known-gaps` recipe, updating `justfile`, `scripts/checks.py`, and `docs/testing.md` accordingly).
 
-- [ ] **Step 5: Update `docs/known-gaps.md`** — replace with a short "all M1-disclosed gaps fixed in M2" note; update `docs/testing.md` (lane table loses the known-gaps row; `just test` description updated).
+- [x] **Step 5: Update `docs/known-gaps.md`** — replace with a short "all M1-disclosed gaps fixed in M2" note; update `docs/testing.md` (lane table loses the known-gaps row; `just test` description updated).
 
-- [ ] **Step 6: Commit** — `feat: drain pi stderr to a file and retire the known-gap lane`.
+- [x] **Step 6: Commit** — `feat: drain pi stderr to a file and retire the known-gap lane`.
 
 ---
 
@@ -763,9 +777,9 @@ class StderrFloodTests(DoubleTestCase):
 **Files:**
 - Modify: `docs/baselines/` — add `m2-acceptance.md`
 
-- [ ] **Step 1: Run every offline lane twice** (`just test`, `just test-install` twice) — all green, zero skips, zero expected failures anywhere. `git diff --check` clean.
+- [x] **Step 1: Run every offline lane twice** (`just test`, `just test-install` twice) — all green, zero skips, zero expected failures anywhere. `git diff --check` clean.
 
-- [ ] **Step 2: Re-run the real smoke** — the operator approved `opencode/gpt-5.6-luna` for smoke runs in M1; re-run with the same model:
+- [x] **Step 2: Re-run the real smoke** — the operator approved `opencode/gpt-5.6-luna` for smoke runs in M1; re-run with the same model:
 
 ```bash
 SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi
@@ -773,9 +787,9 @@ SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi
 
 Expected: PASS with live observation, receipt, session continuity, unchanged app hashes. The M2 changes (branch isolation now applies to committing ADWs — smoke does not commit; stderr file; fingerprinted snapshots) must not regress the two-call smoke. A failure here is a separately reviewed bugfix, never a loosened gate.
 
-- [ ] **Step 3: Write `docs/baselines/m2-acceptance.md`** — same discipline as M1's report: commit, versions, lane counts, smoke evidence (adw_id, live event id, tokens/cost), and the explicit statement that all seven M1-disclosed gaps are fixed with their tests now ordinary. Historical example worktree preservation check (HEAD before/after).
+- [x] **Step 3: Write `docs/baselines/m2-acceptance.md`** — same discipline as M1's report: commit, versions, lane counts, smoke evidence (adw_id, live event id, tokens/cost), and the explicit statement that all seven M1-disclosed gaps are fixed with their tests now ordinary. Historical example worktree preservation check (HEAD before/after).
 
-- [ ] **Step 4: Commit** — `docs: record m2 safety and lifecycle acceptance`.
+- [x] **Step 4: Commit** — `docs: record m2 safety and lifecycle acceptance`.
 
 ---
 

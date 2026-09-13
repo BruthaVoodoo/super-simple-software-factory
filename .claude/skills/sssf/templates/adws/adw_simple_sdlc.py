@@ -61,13 +61,13 @@ DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the
 def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw_id: str | None = None) -> int:
     cfg = agents.load_config(config)
     agents.validate(cfg, REQUIRED_AGENTS)
-    run = session.ensure(cfg, adw_id)
+    run = session.ensure(cfg, adw_id, isolate_branch=True)
     baseline = git_helper.rev("HEAD")     # pinned before this run commits anything
 
     def commit(ph, envelope) -> None:
         """Commit what the preceding phase produced, in that agent's own words."""
         message = envelope.commit_message or f"sssf({run.adw_id}): {envelope.summary}"
-        ph.log(sha=git_helper.commit_all(message), message=message)
+        ph.log(sha=git_helper.commit_paths(run.changed_paths(), message), message=message)
 
     def record(ph, result) -> None:
         """Log a deterministic block's verdict — the same shape every ADW uses."""

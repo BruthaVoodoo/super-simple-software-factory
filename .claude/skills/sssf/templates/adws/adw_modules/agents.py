@@ -127,10 +127,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         result = agent_pi.run(
             request,
             on_event=_event_forwarder(run, phase, agent.name),
-            on_spawn=lambda pid: run.tracer.process_start(
-                run.adw_id, "agent", agent.name, pid,
-                f"{agent.coding_agent} {agent.name} {agent.model}"),
-            on_exit=lambda pid: run.tracer.process_end(run.adw_id, pid))
+            on_spawn=lambda pid: _spawn_child(run, phase, agent, pid),
+            on_exit=_child_exit(run))
         run.add_usage(result.tokens, result.cost)
         spent.merge(result.usage)
         latest = result
@@ -138,52 +136,63 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
 
     # What the tree looked like before this agent got its hands on it. Every
     # send in this phase — first prompt, JSON retries, gate corrections — is
-    # measured against this one baseline.
-    tree_before = permissions.snapshot(run)
-
-    result = send(user_text)
-    envelope, attempt = _parse_with_retries(run, phase, call, result, send)
-
-    # claim gates — violations flow back into the SAME session as corrections
-    for gate_attempt in range(1, max(1, phase.params.retries + 1) + 1):
-        violations = []
-        for gate in call.gates:
-            report = _as_report(gate(envelope, run))
-            found = report.violations
-            run.tracer.gate_row(phase, gate.__name__, report, gate_attempt)
-            run.tracer.event(EventRecord(
-                adw_id=run.adw_id, phase_id=phase.phase_id,
-                type="gate_fail" if found else "gate_pass", name=gate.__name__,
-                payload={"attempt": gate_attempt, "violations": found,
-                         "checks": [c.model_dump() for c in report.checks]}))
-            run.console.gate_result(gate.__name__, report)
-            violations.extend(found)
-        if not violations:
-            break
-        if gate_attempt > phase.params.retries:
-            raise GateFailure(f"{agent.name} failed gates after {gate_attempt} attempt(s):\n- "
-                              + "\n- ".join(violations))
-        phase.attempt = gate_attempt
-        run.console.retry(agent.name, gate_attempt, phase.params.retries,
-                          f"{len(violations)} gate violation(s)")
-        correction = ("Your previous response failed validation:\n- "
-                      + "\n- ".join(violations)
-                      + "\n\nFix these problems, then re-emit ONLY your Report JSON.")
-        result = send(correction)
+    # measured against this one baseline. save_dir mirrors untracked/ignored
+    # bytes so enforcement can restore what Git cannot.
+    tree_before = permissions.snapshot(
+        run, save_dir=run.session_dir / "permission_state")
+    try:
+        result = send(user_text)
         envelope, attempt = _parse_with_retries(run, phase, call, result, send)
 
-    # Permission is checked after every send is done, and before the envelope is
-    # accepted: an agent does not get to report success on a phase in which it
-    # wrote somewhere it was not allowed to.
-    try:
-        touched = permissions.enforce(run, phase, agent, tree_before)
-    except permissions.PermissionBreach as breach:
-        run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                     type="error", name="permission_breach",
-                                     payload={"agent": agent.name, "error": str(breach),
-                                              "writes": agent.writes,
-                                              "protected_files": run.cfg.defaults.protected_files}))
+        # claim gates — violations flow back into the SAME session as corrections
+        for gate_attempt in range(1, max(1, phase.params.retries + 1) + 1):
+            violations = []
+            for gate in call.gates:
+                report = _as_report(gate(envelope, run))
+                found = report.violations
+                run.tracer.gate_row(phase, gate.__name__, report, gate_attempt)
+                run.tracer.event(EventRecord(
+                    adw_id=run.adw_id, phase_id=phase.phase_id,
+                    type="gate_fail" if found else "gate_pass", name=gate.__name__,
+                    payload={"attempt": gate_attempt, "violations": found,
+                             "checks": [c.model_dump() for c in report.checks]}))
+                run.console.gate_result(gate.__name__, report)
+                violations.extend(found)
+            if not violations:
+                break
+            if gate_attempt > phase.params.retries:
+                raise GateFailure(f"{agent.name} failed gates after {gate_attempt} attempt(s):\n- "
+                                  + "\n- ".join(violations))
+            phase.attempt = gate_attempt
+            run.console.retry(agent.name, gate_attempt, phase.params.retries,
+                              f"{len(violations)} gate violation(s)")
+            correction = ("Your previous response failed validation:\n- "
+                          + "\n- ".join(violations)
+                          + "\n\nFix these problems, then re-emit ONLY your Report JSON.")
+            result = send(correction)
+            envelope, attempt = _parse_with_retries(run, phase, call, result, send)
+    except permissions.PermissionBreach:
+        _finish_agent_trace(run, phase, agent, spent)
         raise
+    except BaseException as error:
+        # Enforcement runs on EVERY exit path: a write that happened before a
+        # parse exhaustion or gate failure must still be audited and rolled
+        # back. A breach replaces the original error (preserved as __cause__).
+        try:
+            permissions.enforce(run, phase, agent, tree_before)
+        except permissions.PermissionBreach as breach:
+            run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+                                         type="error", name="permission_breach",
+                                         payload={"agent": agent.name,
+                                                  "error": str(breach),
+                                                  "writes": agent.writes,
+                                                  "during": repr(error)}))
+            _finish_agent_trace(run, phase, agent, spent)
+            raise breach from error
+        _finish_agent_trace(run, phase, agent, spent)
+        raise
+    else:
+        touched = permissions.enforce(run, phase, agent, tree_before)
     if touched:
         run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                      type="log", name="paths_touched",
@@ -201,15 +210,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                  type="handoff", name=agent.name,
                                  payload={"artifacts": envelope.artifacts,
                                           "summary": envelope.summary}))
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="agent_end", name=agent.name,
-                                 # Phase totals, not the last send's: a retried
-                                 # phase paid for every attempt.
-                                 tokens=spent.total_tokens,
-                                 payload={"cost": spent.total_cost,
-                                          "usage": spent.model_dump(),
-                                          "context_tokens": context.context_tokens,
-                                          "context_window": context.context_window}))
+    _finish_agent_trace(run, phase, agent, spent, context=context)
     run.console.agent_finished(agent.name, spent.total_tokens, spent.total_cost)
     if envelope.status != "success":
         raise RuntimeError(f"{agent.name} reported status={envelope.status!r}: {envelope.summary}")
@@ -225,11 +226,41 @@ def _as_report(result) -> GateReport:
     return GateReport(checks=[GateCheck(item=str(v), ok=False) for v in (result or [])])
 
 
+def _finish_agent_trace(run, phase, agent, spent, context=None) -> None:
+    """Close the agent's trace with its `agent_end` row — on success AND on
+    failure. Phase totals, not the last send's: a retried phase paid for
+    every attempt. A run that never sent anything has no usage to record."""
+    if spent.total_tokens == 0:
+        return
+    run.tracer.event(EventRecord(
+        adw_id=run.adw_id, phase_id=phase.phase_id,
+        type="agent_end", name=agent.name,
+        tokens=spent.total_tokens,
+        payload={"cost": spent.total_cost,
+                 "usage": spent.model_dump(),
+                 "context_tokens": getattr(context, "context_tokens", 0),
+                 "context_window": getattr(context, "context_window", 0)}))
+
+
 def _agent_session_id(run, agent: AgentConfig) -> str:
     entry = run.agent_map.get(agent.name)
     if entry and entry.get("model") == agent.model:
         return entry["session_id"]           # rejoin the existing context window
     return f"sssf-{run.adw_id}-{agent.name}-{new_id(4)}"
+
+
+def _spawn_child(run, phase, agent, pid: int) -> None:
+    """Record the child in the trace AND in the run's kill list."""
+    run.tracer.process_start(run.adw_id, "agent", agent.name, pid,
+                             f"{agent.coding_agent} {agent.name} {agent.model}")
+    run.register_child(pid)
+
+
+def _child_exit(run):
+    def on_exit(pid: int) -> None:
+        run.tracer.process_end(run.adw_id, pid)
+        run.child_exited(pid)
+    return on_exit
 
 
 def _event_forwarder(run, phase: Phase, agent_name: str):
