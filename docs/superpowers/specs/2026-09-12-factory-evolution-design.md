@@ -85,6 +85,10 @@ The target project may receive `.claude/skills/sssf/` only when the user explici
 
 The generated Justfile remains a supported interface. The CLI does not replace project-local Just commands.
 
+The template justfile in the factory source repository is the **canonical** justfile. From M1 onward it is the single source of truth for stamped recipes, and it must be a superset of every recipe the pinned example worktree ships (minus the exclusions below). Recipe drift between the template and previously stamped repos is detected by an M1 regression test, not by users.
+
+**Exclusions from the canonical set:** `cc` and `ipi` — recipes that boot a Claude-Code or ipi orchestrator — are not stamped by default, because the factory is Pi-only and `/sssf` is an optional frontend. They may exist as documented opt-in additions.
+
 The installed project continues to expose commands such as:
 
 ```text
@@ -231,13 +235,16 @@ M0 does not change runtime code and does not create a new application.
 
 **Actions:**
 
-1. Use the pinned example project as the manual dogfooding target.
-2. Create clean temporary copies or clones from the pinned example commit for installation tests.
-3. Add unit tests for the modules listed in section 5.1.
-4. Add control-plane tests for the failure and retry cases listed in section 5.2.
-5. Add the `smoke-real-pi` command and run it against the example-based target.
-6. Verify Justfile recipes and SQLite trace output in a clean target.
-7. Add a smaller fixture only when a specific test cannot use the example-based target; document that reason beside the fixture.
+1. Define the canonical justfile recipe set and make the template justfile that superset: every recipe in the pinned example justfile except `cc` and `ipi`, plus `demo`.
+2. Add a drift regression test: stamp a clean temporary target, then assert the stamped justfile contains the canonical recipe set and that `just --list` succeeds there.
+3. Use the pinned example project as the manual dogfooding target.
+4. Create clean temporary copies or clones from the pinned example commit for installation tests.
+5. Add unit tests for the modules listed in section 5.1.
+6. Add control-plane tests for the failure and retry cases listed in section 5.2.
+7. Add the `smoke-real-pi` command and run it against the example-based target.
+8. Verify Justfile recipes and SQLite trace output in a clean target.
+9. Ensure tests distinguish fake/recorded Pi from real Pi.
+10. Add a smaller fixture only when a specific test cannot use the example-based target; document that reason beside the fixture.
 
 **Required outputs:**
 
@@ -249,6 +256,7 @@ M0 does not change runtime code and does not create a new application.
 **Exit condition:**
 
 - clean temporary copies can be installed without manual file preparation;
+- the stamped justfile in a clean target matches the canonical recipe set and the drift test passes;
 - control-plane tests pass without API calls;
 - `just smoke-real-pi` completes with real Pi;
 - the example worktree remains available for manual dogfooding;
