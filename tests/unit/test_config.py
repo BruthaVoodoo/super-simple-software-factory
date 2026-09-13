@@ -114,12 +114,34 @@ class ValidateConfigTests(RuntimeTestCase):
             agents.validate(broken, ["scout"])
         self.assertIn("system prompt not found", str(caught.exception))
 
-    def test_claude_code_agent_is_rejected_at_runtime_validation(self):
-        claude = self.config(coding_agent="claude_code")
+    def test_claude_code_is_rejected_by_the_schema_itself(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            self.config(coding_agent="claude_code")
+        # and it cannot slip through a loaded YAML either
+        yaml_path = self.target / "claude-roster.yaml"
+        yaml_path.write_text("""
+agents:
+  - name: scout
+    coding_agent: claude_code
+    prompt_engineering:
+      system: prompts/scout-system.md
+      user: prompts/scout-user.md
+""")
+        with self.assertRaises(ValidationError):
+            agents.load_config(str(yaml_path))
+
+    def test_missing_extension_path_is_rejected_at_validation(self):
+        broken = self.config(harness_engineering=["extensions/absent.ts"])
         with self.assertRaises(SystemExit) as caught:
-            agents.validate(claude, ["scout"])
-        self.assertIn("claude_code", str(caught.exception))
-        self.assertIn("not implemented", str(caught.exception))
+            agents.validate(broken, ["scout"])
+        self.assertIn("extensions/absent.ts", str(caught.exception))
+
+    def test_present_extension_path_passes_validation(self):
+        (self.target / "extensions").mkdir()
+        (self.target / "extensions/real.ts").write_text("// extension\n")
+        agents.validate(self.config(harness_engineering=["extensions/real.ts"]),
+                        ["scout"])
 
     def test_unknown_model_pattern_is_rejected(self):
         unknown = self.config(model="google/does-not-exist")

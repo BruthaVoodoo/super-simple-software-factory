@@ -1,5 +1,5 @@
 # sssf.config.yaml — the factory's agent roster. One agent, one prompt, one purpose.
-# v1 runs the Pi coding agent only; coding_agent: claude_code arrives in v2.
+# Pi is the only coding agent — the schema rejects anything else.
 defaults:
   coding_agent: pi
   model: google/gemini-3.6-flash   # provider/id — a bare pattern is ambiguous across providers
@@ -141,3 +141,16 @@ agents:
       - bash
       - write
       - edit
+
+# Deterministic quality commands — the argv IS the acceptance criterion.
+# A block is enabled exactly when it is configured; a workflow that needs an
+# unconfigured block fails loudly (never fakes a pass). argv must be a LIST
+# (never a shell string) and binaries go by bare name (they inherit your env).
+# quality:
+#   test:
+#     argv: ["uv", "run", "pytest", "-q"]
+#     timeout_seconds: 600
+#   lint:
+#     argv: ["uv", "run", "ruff", "check", "."]
+#   typecheck:
+#     argv: ["uv", "run", "mypy", "."]

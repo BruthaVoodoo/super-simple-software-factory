@@ -58,13 +58,13 @@ def validate(cfg: SSSFConfig, required: list[str]) -> None:
         except SystemExit as e:
             problems.append(str(e))
             continue
-        if agent.coding_agent != "pi":
-            problems.append(f"agent {name!r}: coding_agent {agent.coding_agent!r} "
-                            f"is not implemented in v1 (pi only)")
         for label, ref in (("system", agent.prompt_engineering.system),
                            ("user", agent.prompt_engineering.user)):
             if not Path(ref).is_file():
                 problems.append(f"agent {name!r}: {label} prompt not found: {ref}")
+        for extension in agent.harness_engineering:
+            if not Path(extension).is_file():
+                problems.append(f"agent {name!r}: extension not found: {extension}")
         try:
             agent_pi.resolve_model(agent.model)
         except ValueError as e:
@@ -91,16 +91,22 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 
-    session_id = _agent_session_id(run, agent)
+    session_id, session_continued = _agent_session(run, agent)
     run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="agent_start", name=agent.name,
                                  payload={"model": agent.model, "thinking": agent.thinking,
                                           "color": agent.color,
                                           "session_id": session_id,
+                                          "session_continued": session_continued,
                                           "coding_agent": agent.coding_agent,
                                           "purpose": agent.purpose,
                                           "tools": agent.tools,  # None = all tools
                                           "harness_engineering": agent.harness_engineering}))
+    if session_continued:
+        run.tracer.event(EventRecord(
+            adw_id=run.adw_id, phase_id=phase.phase_id, type="log",
+            name="session_continued", payload={"agent": agent.name,
+                                               "session_id": session_id}))
     run.console.agent_started(agent.name, agent.model, session_id)
 
     # Parse retries and gate corrections re-enter the SAME pi session, so the
@@ -108,9 +114,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     # the opposite: every send costs, so usage accumulates across all of them.
     latest: agent_pi.PiResult | None = None
     spent = UsageBreakdown()
+    stats = {"sends": 0, "json_attempts": 0, "gate_attempts": 0}
 
     def send(prompt_text: str) -> agent_pi.PiResult:
         nonlocal latest
+        stats["sends"] += 1
         request = PiRequest(
             prompt=prompt_text,
             system_prompt=system_text,
@@ -142,7 +150,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         run, save_dir=run.session_dir / "permission_state")
     try:
         result = send(user_text)
-        envelope, attempt = _parse_with_retries(run, phase, call, result, send)
+        envelope, attempt = _parse_with_retries(run, phase, call, result, send,
+                                                stats)
 
         # claim gates — violations flow back into the SAME session as corrections
         for gate_attempt in range(1, max(1, phase.params.retries + 1) + 1):
@@ -158,6 +167,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                              "checks": [c.model_dump() for c in report.checks]}))
                 run.console.gate_result(gate.__name__, report)
                 violations.extend(found)
+            if call.gates:
+                stats["gate_attempts"] = gate_attempt
             if not violations:
                 break
             if gate_attempt > phase.params.retries:
@@ -170,8 +181,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                           + "\n- ".join(violations)
                           + "\n\nFix these problems, then re-emit ONLY your Report JSON.")
             result = send(correction)
-            envelope, attempt = _parse_with_retries(run, phase, call, result, send)
+            envelope, attempt = _parse_with_retries(run, phase, call, result, send,
+                                                    stats)
     except permissions.PermissionBreach:
+        _emit_repair_summary(run, phase, agent, stats, [],
+                             outcome="permission_breach")
         _finish_agent_trace(run, phase, agent, spent)
         raise
     except BaseException as error:
@@ -187,8 +201,14 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                                   "error": str(breach),
                                                   "writes": agent.writes,
                                                   "during": repr(error)}))
+            _emit_repair_summary(run, phase, agent, stats, [],
+                                 outcome="permission_breach")
             _finish_agent_trace(run, phase, agent, spent)
             raise breach from error
+        outcome = ("gate_exhausted" if isinstance(error, GateFailure)
+                   else "parse_exhausted" if "valid" in str(error)
+                   and "JSON" in str(error) else "error")
+        _emit_repair_summary(run, phase, agent, stats, [], outcome=outcome)
         _finish_agent_trace(run, phase, agent, spent)
         raise
     else:
@@ -213,7 +233,9 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     _finish_agent_trace(run, phase, agent, spent, context=context)
     run.console.agent_finished(agent.name, spent.total_tokens, spent.total_cost)
     if envelope.status != "success":
+        _emit_repair_summary(run, phase, agent, stats, [], outcome="status_fail")
         raise RuntimeError(f"{agent.name} reported status={envelope.status!r}: {envelope.summary}")
+    _emit_repair_summary(run, phase, agent, stats, [], outcome="success")
     return envelope
 
 
@@ -224,6 +246,16 @@ def _as_report(result) -> GateReport:
     if isinstance(result, GateReport):
         return result
     return GateReport(checks=[GateCheck(item=str(v), ok=False) for v in (result or [])])
+
+
+def _emit_repair_summary(run, phase, agent, stats, violations, outcome) -> None:
+    """One persisted row describing the whole repair loop, on every exit
+    path — the loop is observable without reading raw events."""
+    run.tracer.event(EventRecord(
+        adw_id=run.adw_id, phase_id=phase.phase_id, type="log",
+        name="repair_summary",
+        payload={"agent": agent.name, **stats,
+                 "violations": list(violations)[:20], "outcome": outcome}))
 
 
 def _finish_agent_trace(run, phase, agent, spent, context=None) -> None:
@@ -242,11 +274,13 @@ def _finish_agent_trace(run, phase, agent, spent, context=None) -> None:
                  "context_window": getattr(context, "context_window", 0)}))
 
 
-def _agent_session_id(run, agent: AgentConfig) -> str:
+def _agent_session(run, agent: AgentConfig) -> tuple[str, bool]:
+    """The session id to use, and whether it CONTINUES a prior conversation
+    (the same agent+model already ran in this run and rejoins its window)."""
     entry = run.agent_map.get(agent.name)
     if entry and entry.get("model") == agent.model:
-        return entry["session_id"]           # rejoin the existing context window
-    return f"sssf-{run.adw_id}-{agent.name}-{new_id(4)}"
+        return entry["session_id"], True     # rejoin the existing context window
+    return f"sssf-{run.adw_id}-{agent.name}-{new_id(4)}", False
 
 
 def _spawn_child(run, phase, agent, pid: int) -> None:
@@ -295,14 +329,18 @@ def _extract_json(text: str) -> dict:
     return json.loads(candidate[start:end + 1])
 
 
-def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send):
+def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send,
+                        stats=None):
     """Parse the final response against the declared output type; on failure,
-    continue the SAME session with a correction (bounded)."""
+    continue the SAME session with a correction (bounded). The attempt count
+    lands in stats even when the final attempt raises."""
     for attempt in range(1, JSON_FIX_ATTEMPTS + 2):
         try:
             payload = _extract_json(result.text)
             return call.output_type.model_validate(payload), attempt
         except Exception as error:
+            if stats is not None:
+                stats["json_attempts"] += 1   # failed parse attempts, not indices
             _persist_envelope(run, phase, phase.params.owner, call, None, attempt,
                               valid=False, raw=result.text)
             if attempt > JSON_FIX_ATTEMPTS:

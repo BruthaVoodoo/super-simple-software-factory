@@ -6,14 +6,17 @@ are tripwires inside the test process, not an operating-system sandbox.
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
 from pathlib import Path
 
-# Programs an offline lane may launch. Anything else fails loudly.
+# Programs an offline lane may launch. Anything else fails loudly — unless
+# it does not exist on PATH at all, in which case the OS itself will refuse
+# (quality blocks must be able to exercise the missing-binary exit-127 path).
 _ALLOWED_PROGRAMS = {
-    "python", "python3", "sh", "bash", "git", "just", "uv",
+    "python", "python3", "sh", "bash", "git", "just", "uv", "sleep",
     "pi-double.py", "argv-recorder.py",
 }
 
@@ -68,9 +71,9 @@ def install_offline_guards(lane: str) -> None:
     def guarded_popen(self, args, *rest, **kwargs):  # noqa: ANN001
         argv = args if isinstance(args, (list, tuple)) else str(args).split()
         name = Path(str(argv[0])).name
-        allowed = (name in _ALLOWED_PROGRAMS
-                   or str(argv[0]).startswith(tempfile.gettempdir()))
-        if not allowed:
+        if name not in _ALLOWED_PROGRAMS \
+                and not str(argv[0]).startswith(tempfile.gettempdir()) \
+                and shutil.which(str(argv[0])) is not None:
             raise AssertionError(
                 f"offline lane '{lane}' tried to run {argv[0]!r} — patch the "
                 "protocol boundary explicitly if this is intentional")

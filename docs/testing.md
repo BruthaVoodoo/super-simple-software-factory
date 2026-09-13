@@ -64,6 +64,25 @@ Excluded names are asserted explicitly by tests. Details:
 - Root `just test-*` recipes are development commands and are never stamped
   into user projects.
 
+## Quality commands, repair loops, and diagnostics (M4)
+
+- Quality blocks are CONFIGURED commands in the roster (`quality:` section,
+  argv list, bare binary names, per-block timeout). Enabled = configured.
+  A workflow that needs an unconfigured block fails loudly with config
+  guidance — it can never report acceptance on a command that does nothing.
+- Every agent phase persists a `repair_summary` event: sends, invalid-JSON
+  attempts, gate attempts, final violations, and the outcome
+  (success / parse_exhausted / gate_exhausted / status_fail /
+  permission_breach / error). The repair loop is queryable, not buried in
+  raw events.
+- `agent_start` records `session_continued`; a `session_continued` event is
+  logged when an agent rejoins its prior context window.
+- Pi extension paths (`harness_engineering`) are validated at config
+  validation AND before each launch; a missing extension is a clear error.
+- The runtime is Pi-only and stays that way: the schema rejects
+  `coding_agent: claude_code` at load, and a meta-test asserts no runtime
+  module mentions Claude Code at all.
+
 ## The sssf CLI (M3)
 
 Run from the factory checkout: `uv run --locked --project <factory> sssf <command>`.

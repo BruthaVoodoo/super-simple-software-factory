@@ -1,31 +1,20 @@
-"""Deterministic lint, typecheck, build, and test blocks.
+"""Deterministic quality blocks — CONFIGURED commands, never placeholders.
 
-A known command is not a judgement call. Anything whose invocation you can write
-down belongs here as code — it runs in milliseconds, costs nothing, and returns
-the same answer every time. Agents are for the parts that need reading and
-deciding.
+A block is enabled exactly when it is configured in sssf.config.yaml:
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  REPLACE THE PLACEHOLDER COMMANDS BELOW.                                     ║
-║                                                                              ║
-║  Every block ships as an `echo` that exits 0 and announces it is fake. They   ║
-║  are placeholders on purpose: a stamped repo has no way to guess your test    ║
-║  runner, and a wrong-but-plausible command that silently passes is worse      ║
-║  than one that says so out loud.                                             ║
-║                                                                              ║
-║  For each block you want: swap `_placeholder(...)` for the real argv, e.g.    ║
-║      argv=["bun", "test", "apps/web/server.test.ts"]                         ║
-║      argv=["uv", "run", "pytest", "-q"]                                      ║
-║      argv=["npm", "run", "lint"]                                             ║
-║  Delete the blocks you don't need, and drop them from run_quality()'s list.   ║
-║                                                                              ║
-║  Two rules when you write the real command:                                  ║
-║    1. argv LIST, never a shell string — no quoting bugs, no shell injection.  ║
-║    2. Call binaries by BARE NAME. These blocks inherit the operator's         ║
-║       environment (see utils.operator_env), so `bun`, `uv`, `pytest` resolve  ║
-║       exactly as they do in their terminal. Never hard-code an absolute path  ║
-║       like /Users/you/.bun/bin/bun — that bakes your machine into the trace.  ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+    quality:
+      test:
+        argv: ["uv", "run", "pytest", "-q"]
+        timeout_seconds: 600
+
+Two rules for a real command:
+  1. argv LIST, never a shell string — no quoting bugs, no shell injection.
+  2. Call binaries by BARE NAME. These blocks inherit the operator's
+     environment (utils.operator_env), so `bun`, `uv`, `pytest` resolve
+     exactly as they do in their terminal.
+
+A workflow that asks for an unconfigured block fails loudly — it can never
+report acceptance on a command that does nothing.
 """
 
 from __future__ import annotations
@@ -36,20 +25,16 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .data_types import (EventRecord, QualityCheckResult, QualityCheckSpec, QualityResult,
-                         VerifyOutput)
+from .data_types import (EventRecord, QualityBlock, QualityCheckResult,
+                         QualityCheckSpec, QualityResult, VerifyOutput)
+
+QualityBlockSpec = QualityBlock
 from .utils import now_iso, operator_env
 
 # How much of a failing command's output rides back inside the envelope. Enough
 # for a builder to act on without opening the artifact; bounded so a runaway
 # stack trace can't swamp the next agent's context.
 TAIL_CHARS = 4_000
-
-
-def _placeholder(name: str) -> list[str]:
-    """A command that does nothing and admits it. Replace every call to this."""
-    return ["echo", f"PLACEHOLDER {name}: edit adws/adw_modules/quality.py and "
-                    f"replace this echo with the real {name} command"]
 
 
 def _check_dir(run, name: str) -> Path:
@@ -133,45 +118,27 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
 
 
 # ── Blocks ────────────────────────────────────────────────────────────────────
-# Replace every argv below. See the banner at the top of this file.
+# Enabled = configured in sssf.config.yaml. There is no placeholder fallback.
 
-def test(run) -> QualityCheckResult:
-    """Run the project's test suite. The highest-value block to wire up first."""
-    return _run(QualityCheckSpec(
-        name="test",
-        area="backend",
-        operation="build",
-        argv=_placeholder("test"),        # e.g. ["bun", "test"] or ["uv", "run", "pytest", "-q"]
-        timeout_seconds=600,
-    ), run)
+class QualityNotConfigured(RuntimeError):
+    """A workflow asked for a quality block that is not configured."""
 
 
-def lint(run) -> QualityCheckResult:
-    return _run(QualityCheckSpec(
-        name="lint",
-        area="backend",
-        operation="lint",
-        argv=_placeholder("lint"),        # e.g. ["bun", "x", "oxlint@1.36.0", "src"]
-    ), run)
+def _block(run, name: str) -> QualityBlockSpec:
+    blocks = run.cfg.quality.blocks
+    if name not in blocks:
+        raise QualityNotConfigured(
+            f"quality block {name!r} is not configured — add to sssf.config.yaml:\n"
+            f"  quality:\n    {name}:\n"
+            f"      argv: [<the real command, as an argv list>]")
+    return blocks[name]
 
 
-def typecheck(run) -> QualityCheckResult:
-    return _run(QualityCheckSpec(
-        name="typecheck",
-        area="backend",
-        operation="typecheck",
-        argv=_placeholder("typecheck"),   # e.g. ["bun", "x", "tsc", "--noEmit"]
-    ), run)
-
-
-def build(run) -> QualityCheckResult:
-    output_dir = _check_dir(run, "build") / "bundle"
-    return _run(QualityCheckSpec(
-        name="build",
-        area="backend",
-        operation="build",
-        argv=_placeholder("build"),       # e.g. ["bun", "build", "src/index.ts", "--outdir", str(output_dir)]
-    ), run)
+def run_block(run, name: str) -> QualityCheckResult:
+    block = _block(run, name)
+    return _run(QualityCheckSpec(name=name, area="backend", operation="build",
+                                 argv=block.argv,
+                                 timeout_seconds=block.timeout_seconds), run)
 
 
 def run_tests(run) -> QualityResult:
@@ -182,7 +149,7 @@ def run_tests(run) -> QualityResult:
     subprocess already knows; the repair loop is unchanged, because a failure
     still reaches the builder through `as_envelope` below.
     """
-    check = test(run)
+    check = run_block(run, "test")
     failures = ([] if check.passed else
                 [f"{check.name}: `{check.command}` exited {check.returncode}\n"
                  f"{check.output_tail}".rstrip()])
@@ -212,22 +179,18 @@ def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
 
 
 def run_quality(run) -> QualityResult:
-    """Run every block and collect ALL failures — one pass tells you everything.
+    """Run every CONFIGURED block and collect ALL failures.
 
-    Ordering contract for the caller: a failing block does NOT fail the phase.
-    The runner did its job; the CODE is what failed. Hand this result to the
-    builder and let the bounded repair loop decide the run's fate.
+    Enabled = configured. Zero configured blocks is a loud error, not a pass —
+    a workflow must never report acceptance on commands that do nothing.
     """
-    blocks: list[Callable] = [
-        test,
-        lint,
-        typecheck,
-        build,
-    ]
-    checks = [block(run) for block in blocks]
-    # A failure is the command, its exit code, and what it actually printed —
-    # everything a builder needs to repair without opening a log or being told
-    # what the error "means" by a parser that guessed.
+    names = sorted(run.cfg.quality.blocks)
+    if not names:
+        raise QualityNotConfigured(
+            "no quality blocks are configured — add to sssf.config.yaml:\n"
+            "  quality:\n    test:\n"
+            "      argv: [<the real command, as an argv list>]")
+    checks = [run_block(run, name) for name in names]
     failures = [
         f"{check.name}: `{check.command}` exited {check.returncode}\n{check.output_tail}".rstrip()
         for check in checks if not check.passed

@@ -2,6 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development if a subagent tool is actually available; otherwise use superpowers:executing-plans. Execute sequentially with review between tasks. Steps use checkbox (`- [ ]`) syntax for tracking. Do not promise independent subagent review when it did not occur.
 
+## Execution status (all tasks complete)
+
+- **Work location:** `.worktrees/m4`, branch `feat/m4-pi-workflows` (from `main` @ e0131cb). Inline execution; review inline.
+- Task 1 (`27cac7c`) config-driven quality blocks — `_placeholder` + banner deleted; `quality:` roster section (operator shape accepted via a before-validator); tests adjusted for the offline Popen guard (guard now allows nonexistent binaries so the exit-127 path is testable; `sleep` allowlisted).
+- Task 2 (`df49637`) `repair_summary` on every exit path. Learnings: the counter lives INSIDE `_parse_with_retries` (a raising final attempt must still count); failed-attempt semantics (0 for a valid first send), not loop indices.
+- Task 3 (`3f2f281`) session-continuation diagnostics.
+- Task 4 (`7ed1a4d` + fixes `8021585`/`83f7f55`) extension validation at validate() and pre-launch.
+- Task 5 (`3b16125`) Claude Code removed: stub deleted, `Literal["pi"]` schema, meta-test.
+- Task 6 — lanes twice green (123/37/52), smoke PASS (`674b6fec`, 10.7s, `evt_bab59d65b1c3`, 23968 tokens / $0.0024), report in `docs/baselines/m4-acceptance.md`.
+
+**M4 COMPLETE. Next: finishing-a-development-branch — merge requires operator approval.**
+
 **Goal:** Make every supported workflow unambiguously Pi-only with explicit, configured quality commands, observable repair loops, session-continuation diagnostics, validated extensions — and no Claude Code anywhere in the runtime.
 
 **Architecture:** Quality blocks stop being editable placeholder functions and become CONFIGURED commands in `sssf.config.yaml` (`quality:` section); an unconfigured quality invocation raises loudly, so a workflow can never report acceptance on a fake command. Agent phases persist a `repair_summary` event (sends, JSON attempts, gate attempts, outcome) on every exit path, and `agent_start` gains `session_continued` diagnostics. Extension paths are validated at config time and before each launch. The Claude Code stub, its schema acceptance, and every runtime reference are deleted, enforced by a meta-test.
@@ -94,7 +106,7 @@ quality:
 **Interfaces:**
 - Produces: `SSSFConfig.quality: QualityConfig`; `QualityNotConfigured(RuntimeError)`; `quality.run_block(run, name) -> QualityCheckResult`; `quality.run_quality(run) -> QualityResult` (all configured blocks, sorted); `quality.run_tests(run) -> QualityResult`. ADW call sites unchanged.
 
-- [ ] **Step 1: Failing tests** in `tests/unit/test_quality.py`
+- [x] **Step 1: Failing tests** in `tests/unit/test_quality.py`
 
 ```python
 """Quality blocks are configured commands — nothing ships as a placeholder."""
@@ -183,9 +195,9 @@ class QualityBlockTests(RuntimeTestCase):
             quality.run_quality(run)
 ```
 
-- [ ] **Step 2: Run — expect failures** (`QualityNotConfigured` absent; blocks are placeholders).
+- [x] **Step 2: Run — expect failures** (`QualityNotConfigured` absent; blocks are placeholders).
 
-- [ ] **Step 3: Implement.** `data_types.py` adds:
+- [x] **Step 3: Implement.** `data_types.py` adds:
 
 ```python
 class QualityBlock(BaseModel):
@@ -223,9 +235,9 @@ def run_block(run, name: str) -> QualityCheckResult:
 
 `run_quality` iterates `sorted(run.cfg.quality.blocks)` (empty → `QualityNotConfigured` with the guidance message); `run_tests` = run_block("test") + existing failure shaping. Keep `_run`, `_check_dir`, `as_envelope`, TAIL_CHARS exactly as they are. Delete `_placeholder` and the banner. `templates/sssf.config.yaml` gains a commented `quality:` example block with the two argv rules (list, bare names).
 
-- [ ] **Step 4: Run — green.** `just test-unit` (115 + 6).
+- [x] **Step 4: Run — green.** `just test-unit` (115 + 6).
 
-- [ ] **Step 5: Commit** — `feat: configure quality commands in the roster; placeholders removed`.
+- [x] **Step 5: Commit** — `feat: configure quality commands in the roster; placeholders removed`.
 
 ---
 
@@ -238,7 +250,7 @@ def run_block(run, name: str) -> QualityCheckResult:
 **Interfaces:**
 - Produces: every agent phase emits a `log` event `repair_summary` with payload `{"agent", "sends", "json_attempts", "gate_attempts", "violations", "outcome"}` on every exit path.
 
-- [ ] **Step 1: Failing tests** (append to `tests/control_plane/test_agents.py`)
+- [x] **Step 1: Failing tests** (append to `tests/control_plane/test_agents.py`)
 
 ```python
 class RepairSummaryTests(RuntimeTestCase):
@@ -273,9 +285,9 @@ class RepairSummaryTests(RuntimeTestCase):
                          (2, "success"))
 ```
 
-- [ ] **Step 2: Run — expect failures** (no `repair_summary` events).
+- [x] **Step 2: Run — expect failures** (no `repair_summary` events).
 
-- [ ] **Step 3: Implement** in `agents.execute`: a local `stats = {"sends": 0, "json_attempts": 0, "gate_attempts": 0}` — `send()` increments `sends`; after each `_parse_with_retries`, add its returned `attempt` to `json_attempts`; the gate loop sets `gate_attempts`. New helper:
+- [x] **Step 3: Implement** in `agents.execute`: a local `stats = {"sends": 0, "json_attempts": 0, "gate_attempts": 0}` — `send()` increments `sends`; after each `_parse_with_retries`, add its returned `attempt` to `json_attempts`; the gate loop sets `gate_attempts`. New helper:
 
 ```python
 def _emit_repair_summary(run, phase, agent, stats, violations, outcome) -> None:
@@ -288,9 +300,9 @@ def _emit_repair_summary(run, phase, agent, stats, violations, outcome) -> None:
 
 Called from the success path (`"success"`, violations `[]`) and every failure branch (Task 2's restructure from M2 already has one shared failure path — extend it: parse → `parse_exhausted`, `GateFailure` → `gate_exhausted`, status-fail → `status_fail`, breach → `permission_breach`, other → `error`).
 
-- [ ] **Step 4: Run — green.** `just test-control-plane` (+3).
+- [x] **Step 4: Run — green.** `just test-control-plane` (+3).
 
-- [ ] **Step 5: Commit** — `feat: persist a repair summary for every agent phase`.
+- [x] **Step 5: Commit** — `feat: persist a repair summary for every agent phase`.
 
 ---
 
@@ -303,7 +315,7 @@ Called from the success path (`"success"`, violations `[]`) and every failure br
 **Interfaces:**
 - Produces: `agent_start` payload carries `"session_continued": bool`; a `log` event `session_continued` (agent, session_id) is emitted when a call rejoins an existing session.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 class SessionContinuationTests(RuntimeTestCase):
@@ -319,13 +331,13 @@ class SessionContinuationTests(RuntimeTestCase):
         self.assertIn("sssf-cont-run-scout", continued[0][2])
 ```
 
-- [ ] **Step 2: Run — expect failure** (payload lacks the key).
+- [x] **Step 2: Run — expect failure** (payload lacks the key).
 
-- [ ] **Step 3: Implement** — `_agent_session(run, agent) -> tuple[str, bool]`; `agent_start` payload + `session_continued` event.
+- [x] **Step 3: Implement** — `_agent_session(run, agent) -> tuple[str, bool]`; `agent_start` payload + `session_continued` event.
 
-- [ ] **Step 4: Run — green.**
+- [x] **Step 4: Run — green.**
 
-- [ ] **Step 5: Commit** — `feat: session continuation diagnostics in the agent trace`.
+- [x] **Step 5: Commit** — `feat: session continuation diagnostics in the agent trace`.
 
 ---
 
@@ -338,7 +350,7 @@ class SessionContinuationTests(RuntimeTestCase):
 **Interfaces:**
 - Produces: `agents.validate` collects missing `harness_engineering` paths into its problems list; `agent_pi.run` raises `RuntimeError("pi extension not found: <path>")` before spawning when a `-e` path doesn't exist under `request.cwd`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 In `tests/unit/test_config.py` (ValidateConfigTests):
 
@@ -365,9 +377,9 @@ In `tests/control_plane/test_pi_transport.py`:
         self.assertIn("pi extension not found", str(caught.exception))
 ```
 
-- [ ] **Step 2: Run — expect failures.**
+- [x] **Step 2: Run — expect failures.**
 
-- [ ] **Step 3: Implement.** `agents.validate`: for each agent, for each `path` in `agent.harness_engineering`: `Path(path).is_file()` else problem `f"agent {name!r}: extension not found: {path}"`. `agent_pi.run`: after building `cmd`, before Popen:
+- [x] **Step 3: Implement.** `agents.validate`: for each agent, for each `path` in `agent.harness_engineering`: `Path(path).is_file()` else problem `f"agent {name!r}: extension not found: {path}"`. `agent_pi.run`: after building `cmd`, before Popen:
 
 ```python
     for extension in request.extensions:
@@ -379,9 +391,9 @@ In `tests/control_plane/test_pi_transport.py`:
 
 (Reorder the loop so validation happens before the `cmd += ["-e", ...]` appends or alongside them — single loop, check first.)
 
-- [ ] **Step 4: Run — green.**
+- [x] **Step 4: Run — green.**
 
-- [ ] **Step 5: Commit** — `feat: validate pi extension paths before launch`.
+- [x] **Step 5: Commit** — `feat: validate pi extension paths before launch`.
 
 ---
 
@@ -395,7 +407,7 @@ In `tests/control_plane/test_pi_transport.py`:
 **Interfaces:**
 - Produces: `coding_agent: Literal["pi"]` in both models (schema rejects `claude_code` at construction); `agents.validate` has no coding_agent branch; meta-test asserts zero `claude` references in runtime modules.
 
-- [ ] **Step 1: Update the M1 test + add the meta-test.** In `tests/unit/test_config.py`, replace `test_claude_code_agent_is_rejected_at_runtime_validation`:
+- [x] **Step 1: Update the M1 test + add the meta-test.** In `tests/unit/test_config.py`, replace `test_claude_code_agent_is_rejected_at_runtime_validation`:
 
 ```python
     def test_claude_code_is_rejected_by_the_schema_itself(self):
@@ -433,13 +445,13 @@ class NoClaudeCodeTests(unittest.TestCase):
             self.assertNotIn("claude", text, str(path))
 ```
 
-- [ ] **Step 2: Run — expect failures** (agent_cc.py exists; data_types mentions claude_code; the updated config test fails at validate).
+- [x] **Step 2: Run — expect failures** (agent_cc.py exists; data_types mentions claude_code; the updated config test fails at validate).
 
-- [ ] **Step 3: Implement.** `git rm` agent_cc.py; `Literal["pi"]` in both models; delete validate's coding_agent branch; update the sssf.config.yaml comment ("Pi is the only coding agent; the schema rejects anything else").
+- [x] **Step 3: Implement.** `git rm` agent_cc.py; `Literal["pi"]` in both models; delete validate's coding_agent branch; update the sssf.config.yaml comment ("Pi is the only coding agent; the schema rejects anything else").
 
-- [ ] **Step 4: Run — green.** `just test-unit`, `just test-control-plane`, `just test-install` (the starter-config change flows through the manifest/update tests).
+- [x] **Step 4: Run — green.** `just test-unit`, `just test-control-plane`, `just test-install` (the starter-config change flows through the manifest/update tests).
 
-- [ ] **Step 5: Commit** — `feat: remove claude code from the runtime; schema is pi-only`.
+- [x] **Step 5: Commit** — `feat: remove claude code from the runtime; schema is pi-only`.
 
 ---
 
@@ -449,19 +461,19 @@ class NoClaudeCodeTests(unittest.TestCase):
 - Modify: `docs/testing.md`
 - Create: `docs/baselines/m4-acceptance.md`
 
-- [ ] **Step 1: Extend `docs/testing.md`** — the `quality:` config section (enabled = configured; unconfigured quality fails the workflow loudly, never fakes acceptance), repair summaries, session-continuation diagnostics, extension validation.
+- [x] **Step 1: Extend `docs/testing.md`** — the `quality:` config section (enabled = configured; unconfigured quality fails the workflow loudly, never fakes acceptance), repair summaries, session-continuation diagnostics, extension validation.
 
-- [ ] **Step 2: Run every offline lane twice** — `just test`, `git diff --check`.
+- [x] **Step 2: Run every offline lane twice** — `just test`, `git diff --check`.
 
-- [ ] **Step 3: Real smoke re-run** with the operator-approved model:
+- [x] **Step 3: Real smoke re-run** with the operator-approved model:
 
 ```bash
 SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi
 ```
 
-- [ ] **Step 4: Write `docs/baselines/m4-acceptance.md`** — commits, versions, lane counts, the meta-test result (grep proof), smoke evidence, historical-worktree preservation.
+- [x] **Step 4: Write `docs/baselines/m4-acceptance.md`** — commits, versions, lane counts, the meta-test result (grep proof), smoke evidence, historical-worktree preservation.
 
-- [ ] **Step 5: Commit** — `docs: record m4 workflow improvements acceptance`.
+- [x] **Step 5: Commit** — `docs: record m4 workflow improvements acceptance`.
 
 ---
 

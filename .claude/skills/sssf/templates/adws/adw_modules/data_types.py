@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal, Optional, Type
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail"]
@@ -142,6 +142,31 @@ class QualityCheckSpec(BaseModel):
     operation: QualityOperation
     argv: list[str]
     timeout_seconds: int = 120
+
+
+class QualityBlock(BaseModel):
+    """One configured quality command — the operator writes the argv down.
+
+    A block is ENABLED exactly when it is configured here; there is no
+    placeholder fallback, so a workflow either runs a real command or fails
+    loudly asking for one.
+    """
+
+    argv: list[str]
+    timeout_seconds: int = 120
+
+
+class QualityConfig(BaseModel):
+    blocks: dict[str, QualityBlock] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_blocks(cls, value):
+        """Accept `quality: {test: {...}}` — every key IS a block; no need to
+        repeat a `blocks:` wrapper in the operator's config."""
+        if isinstance(value, dict) and "blocks" not in value:
+            return {"blocks": value}
+        return value
 
 
 class QualityCheckResult(BaseModel):
@@ -303,7 +328,7 @@ class PromptEngineering(BaseModel):
 
 class AgentConfig(BaseModel):
     name: str
-    coding_agent: Literal["pi", "claude_code"] = "pi"
+    coding_agent: Literal["pi"] = "pi"
     model: str = "google/gemini-3.6-flash"
     thinking: str = "medium"        # off | minimal | low | medium | high | xhigh | max
     color: str = ""                 # hex swatch for this agent's lane in the UI
@@ -323,7 +348,7 @@ class AgentConfig(BaseModel):
 
 
 class ConfigDefaults(BaseModel):
-    coding_agent: Literal["pi", "claude_code"] = "pi"
+    coding_agent: Literal["pi"] = "pi"
     model: str = "google/gemini-3.6-flash"
     thinking: str = "medium"
     color: str = ""
@@ -347,6 +372,7 @@ class SSSFConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
+    quality: QualityConfig = Field(default_factory=QualityConfig)
 
 
 # ── Tracing ──────────────────────────────────────────────────────────────────

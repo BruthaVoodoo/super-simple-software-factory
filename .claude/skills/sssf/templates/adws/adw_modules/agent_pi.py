@@ -226,6 +226,10 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
     if request.tools:
         cmd += ["--tools", ",".join(request.tools)]
     for extension in request.extensions:
+        extension_path = Path(request.cwd) / extension
+        if not extension_path.is_file():
+            raise RuntimeError(f"pi extension not found: {extension} "
+                               f"(looked for {extension_path})")
         cmd += ["-e", extension]
     cmd.append(request.prompt)
 

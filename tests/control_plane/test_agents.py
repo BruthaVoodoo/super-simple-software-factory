@@ -151,6 +151,51 @@ class BehaviorTableTests(RuntimeTestCase):
                          "process row says ended but the child is still alive")
 
 
+class SessionContinuationTests(RuntimeTestCase):
+    def test_second_call_reports_continued_first_reports_fresh(self):
+        result = execute_scenario(self, responses(VALID, VALID),
+                                  ScenarioOptions(calls=2, adw_id="cont-run"))
+        starts = [json.loads(row[2]) for row in result.events()
+                  if row[0] == "agent_start"]
+        self.assertEqual([start["session_continued"] for start in starts],
+                         [False, True])
+        continued = [row for row in result.events() if row[1] == "session_continued"]
+        self.assertEqual(len(continued), 1)
+        self.assertIn("sssf-cont-run-scout", continued[0][2])
+
+
+class RepairSummaryTests(RuntimeTestCase):
+    def summaries(self, result) -> list[dict]:
+        rows = [event for event in result.events() if event[1] == "repair_summary"]
+        return [json.loads(row[2]) for row in rows]
+
+    def test_success_summary_counts_one_send(self):
+        result = execute_scenario(self, responses(VALID), ScenarioOptions())
+        (summary,) = self.summaries(result)
+        self.assertEqual((summary["sends"], summary["json_attempts"],
+                          summary["gate_attempts"], summary["outcome"]),
+                         (1, 0, 0, "success"))
+
+    def test_parse_exhaustion_summary_records_three_sends(self):
+        result = execute_scenario(self, responses("nope", "nope", "nope"),
+                                  ScenarioOptions())
+        (summary,) = self.summaries(result)
+        self.assertEqual((summary["sends"], summary["json_attempts"],
+                          summary["outcome"]), (3, 3, "parse_exhausted"))
+
+    def test_gate_retry_summary_records_attempts(self):
+        missing = {"text": MISSING_ARTIFACT, "exit_code": 0, "usage": SCENARIO_USAGE,
+                   "events": [], "writes": []}
+        created = {**missing, "writes": [{"path": "report.md", "text": "content"}]}
+        result = execute_scenario(
+            self, {"responses": [missing, created]},
+            ScenarioOptions(gates=(artifacts_exist,), retries=1,
+                            writes=["report.md"]))
+        (summary,) = self.summaries(result)
+        self.assertEqual((summary["gate_attempts"], summary["outcome"]),
+                         (2, "success"))
+
+
 class FailureTraceTests(RuntimeTestCase):
     def test_exhausted_corrections_record_agent_end_usage(self):
         # M2-TRACE-01 — flipped from tests/known_gaps/test_failures.py

@@ -88,9 +88,9 @@ class DoubleTestCase(RuntimeTestCase):
         fields.update(overrides)
         return PiRequest(**fields)
 
-    def _run(self, scenario: dict, **kwargs):
+    def _run(self, scenario: dict, *, request_overrides=None, **kwargs):
         self._use_scenario(scenario)
-        return agent_pi.run(self._request(), **kwargs)
+        return agent_pi.run(self._request(**(request_overrides or {})), **kwargs)
 
 
 class DoubleTransportTests(DoubleTestCase):
@@ -189,6 +189,12 @@ class DoubleTransportTests(DoubleTestCase):
         raw = (self.target / "adws/adw_data/sessions/test-agent/raw_output.jsonl"
                ).read_text()
         self.assertIn("成功 — ünïcode ✓", raw)
+
+    def test_missing_extension_fails_before_spawn(self):
+        with self.assertRaises(RuntimeError) as caught:
+            self._run(MINIMAL_SCENARIO,
+                      request_overrides={"extensions": ["extensions/absent.ts"]})
+        self.assertIn("pi extension not found", str(caught.exception))
 
     def test_announce_start_end_folds_into_exactly_one_tool_call(self):
         start = {"type": "tool_execution_start", "toolCallId": "call-9",
