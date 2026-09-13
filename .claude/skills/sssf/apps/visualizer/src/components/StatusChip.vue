@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Circle, LoaderCircle, X } from 'lucide-vue-next'
+import { AlertTriangle, Check, Circle, LoaderCircle, X } from 'lucide-vue-next'
 
 defineProps<{ status: string }>()
 
@@ -8,6 +8,7 @@ const ICONS: Record<string, unknown> = {
   fail: X,
   running: LoaderCircle,
   queued: Circle,
+  not_accepted: AlertTriangle,
 }
 </script>
 

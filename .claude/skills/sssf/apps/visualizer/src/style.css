@@ -21,6 +21,16 @@
     'Roboto Mono', monospace;
   /* Surface gradient shared by cards and panels — one recipe, everywhere. */
   --surface: linear-gradient(180deg, #10141f 0%, #0b0f18 100%);
+  /* Type scale + spacing: one source, referenced everywhere a size appears. */
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-base: 16px;
+  --fs-lg: 19px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 14px;
+  --space-4: 24px;
+  --radius: 10px;
 }
 
 * {

@@ -128,4 +128,31 @@ const route = useRoute()
   box-shadow: 0 0 10px rgba(74, 222, 128, 0.7);
   animation: pulse 1.6s ease-in-out infinite;
 }
+
+/* Keyboard navigation reaches everything; the ring is always visible. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--dim);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Phones: crumbs wrap, the brand retires, padding tightens. */
+@media (max-width: 640px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .brand {
+    display: none;
+  }
+
+  main {
+    padding: 0;
+  }
+}
 </style>

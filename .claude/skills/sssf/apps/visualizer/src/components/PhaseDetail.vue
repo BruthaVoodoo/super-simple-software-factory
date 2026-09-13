@@ -57,6 +57,71 @@ const phaseOutputs = computed(() =>
     .sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0)),
 )
 
+// Q3: the persisted repair loop — sends, attempts, outcome.
+interface RepairSummaryPayload {
+  agent?: string
+  sends?: number
+  json_attempts?: number
+  gate_attempts?: number
+  violations?: string[]
+  outcome?: string
+}
+
+const repairSummary = computed<RepairSummaryPayload | null>(() => {
+  for (let i = phaseEvents.value.length - 1; i >= 0; i--) {
+    const e = phaseEvents.value[i]
+    if (e.name !== 'repair_summary') continue
+    try {
+      return JSON.parse(e.payload_json ?? '{}') as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }
+  return null
+})
+
+// Q6: deterministic quality blocks this phase ran.
+const qualityEvents = computed(() =>
+  phaseEvents.value.filter((e) => e.type === 'tool_call' && e.name?.startsWith('quality:')),
+)
+
+function qualityPayload(event: EventRow): {
+  command?: string
+  returncode?: number
+  passed?: boolean
+  output_artifact?: string
+} {
+  try {
+    return JSON.parse(event.payload_json ?? '{}') as Record<string, never>
+  } catch {
+    return {}
+  }
+}
+
+// Q4: what the agent actually changed — the runner's own record, not claims.
+const changedFiles = computed<string[]>(() => {
+  const files = new Set<string>()
+  for (const e of phaseEvents.value) {
+    if (e.name !== 'paths_touched') continue
+    try {
+      const payload = JSON.parse(e.payload_json ?? '{}') as { paths?: string[] }
+      for (const p of payload.paths ?? []) files.add(p)
+    } catch {
+      /* malformed payload contributes nothing */
+    }
+  }
+  for (const e of phaseEvents.value) {
+    if (e.type !== 'handoff') continue
+    try {
+      const payload = JSON.parse(e.payload_json ?? '{}') as { artifacts?: string[] }
+      for (const a of payload.artifacts ?? []) files.add(a)
+    } catch {
+      /* malformed payload contributes nothing */
+    }
+  }
+  return files.values().toArray().toSorted()
+})
+
 // The agent's configuration, carried on its phase's `agent_start` event.
 // Older rows carry only model/thinking — rows render what was recorded.
 const agentConfig = computed(() => {
@@ -364,13 +429,65 @@ function togglePanel(id: string) {
           <span class="tag-v">{{ phase.attempt ?? 0 }}/{{ phase.retries ?? 0 }}</span>
         </span>
       </div>
-      <button class="close" title="close" @click="$emit('close')">✕</button>
+      <button class="close" title="close" aria-label="close phase detail" @click="$emit('close')">✕</button>
     </header>
 
     <div v-if="phase.error" class="error-bar d-error">{{ phase.error }}</div>
 
     <div class="d-grid">
       <div class="d-col">
+        <DetailSection
+          v-if="repairSummary"
+          title="repair loop"
+          :icon="Activity"
+          :open="openSections.has('repair')"
+          @toggle="toggleSection('repair')"
+        >
+          <dl class="repair">
+            <div class="cfg-row"><span class="cfg-k">outcome</span><span class="cfg-v">{{ repairSummary.outcome }}</span></div>
+            <div class="cfg-row"><span class="cfg-k">sends</span><span class="cfg-v">{{ repairSummary.sends }}</span></div>
+            <div class="cfg-row"><span class="cfg-k">invalid json attempts</span><span class="cfg-v">{{ repairSummary.json_attempts }}</span></div>
+            <div class="cfg-row"><span class="cfg-k">gate attempts</span><span class="cfg-v">{{ repairSummary.gate_attempts }}</span></div>
+          </dl>
+          <ul v-if="repairSummary.violations?.length" class="violations">
+            <li v-for="v in repairSummary.violations" :key="v">{{ v }}</li>
+          </ul>
+        </DetailSection>
+
+        <DetailSection
+          v-if="qualityEvents.length"
+          title="quality commands"
+          :icon="SquareTerminal"
+          :count="qualityEvents.length"
+          :open="openSections.has('quality')"
+          @toggle="toggleSection('quality')"
+        >
+          <ul class="quality">
+            <li v-for="event in qualityEvents" :key="event.event_id">
+              <code class="q-cmd">{{ qualityPayload(event).command }}</code>
+              <span class="q-exit" :class="qualityPayload(event).passed ? 'ok' : 'bad'">
+                exit {{ qualityPayload(event).returncode }}
+              </span>
+              <span v-if="qualityPayload(event).output_artifact" class="q-art">
+                {{ qualityPayload(event).output_artifact }}
+              </span>
+            </li>
+          </ul>
+        </DetailSection>
+
+        <DetailSection
+          v-if="changedFiles.length"
+          title="changed files"
+          :icon="Package"
+          :count="changedFiles.length"
+          :open="openSections.has('changed')"
+          @toggle="toggleSection('changed')"
+        >
+          <ul class="changed">
+            <li v-for="file in changedFiles" :key="file">{{ file }}</li>
+          </ul>
+        </DetailSection>
+
         <DetailSection
           v-if="requestText"
           title="request"
@@ -1261,5 +1378,57 @@ h3:first-child {
 
 .t-violet {
   color: var(--violet);
+}
+.repair,
+.quality,
+.changed,
+.violations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.violations li {
+  padding: 4px 0;
+  color: var(--red, #f87171);
+  border-top: 1px dashed var(--border-soft);
+}
+
+.quality li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.q-cmd {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-exit.ok {
+  color: var(--green);
+}
+
+.q-exit.bad {
+  color: var(--red, #f87171);
+}
+
+.q-art {
+  color: var(--dim);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changed li {
+  padding: 3px 0;
+  color: var(--text);
+  font-family: var(--mono, monospace);
+  font-size: 13px;
 }
 </style>

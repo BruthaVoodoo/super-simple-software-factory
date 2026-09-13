@@ -21,6 +21,19 @@ export function fmtClock(iso: string | null | undefined): string {
   return new Date(t).toLocaleTimeString([], { hour12: false })
 }
 
+/** Relative age ("3m ago", "2h ago"), for scan-first timestamps. */
+export function fmtRelative(iso: string | null | undefined, nowMs = Date.now()): string {
+  const t = ts(iso)
+  if (!Number.isFinite(t)) return '—'
+  const seconds = Math.max(0, Math.round((nowMs - t) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 export function fmtDate(iso: string | null | undefined): string {
   const t = ts(iso)
   if (!Number.isFinite(t)) return '—'

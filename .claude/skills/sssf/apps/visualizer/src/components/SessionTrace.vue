@@ -13,13 +13,14 @@ import type {
 } from '../lib/types'
 import { Bot, SquareTerminal, UserRound } from 'lucide-vue-next'
 import { fetchEnvelopes, fetchEvents, fetchGates, fetchSession } from '../lib/api'
-import { axisTicks, fmtDate, payloadOk, ts } from '../lib/format'
+import { axisTicks, fmtDate, payloadOk, ts , fmtRelative} from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
 import StatusChip from './StatusChip.vue'
 import StatChip from './StatChip.vue'
 import PhaseDetail from './PhaseDetail.vue'
+import NextActions from './NextActions.vue'
 
 const props = defineProps<{ adwId: string; phaseId: string | null }>()
 
@@ -92,6 +93,33 @@ onUnmounted(() => {
 const selectedPhase = computed(
   () => phases.value.find((p) => p.phase_id === props.phaseId) ?? null,
 )
+
+// Q1: "not accepted" is its own state — session fail + a not_accepted event.
+// Q8: the next-action strip is computed from run state, never guessed.
+const notAcceptedReason = computed<string | null>(() => {
+  if (session.value?.status !== 'fail') return null
+  for (const e of events.value) {
+    if (e.name !== 'not_accepted') continue
+    try {
+      return (JSON.parse(e.payload_json ?? '{}') as { reason?: string }).reason ?? 'acceptance criterion not met'
+    } catch {
+      return 'acceptance criterion not met'
+    }
+  }
+  return null
+})
+
+const displayStatus = computed(() =>
+  notAcceptedReason.value ? 'not_accepted' : (session.value?.status ?? 'fail'),
+)
+
+// Q2: a failed run lands on its last failed phase without the user digging.
+watchEffect(() => {
+  if (!loaded.value || props.phaseId || notAcceptedReason.value === null) return
+  if (session.value?.status !== 'fail') return
+  const failed = phases.value.toReversed().find((p) => p.status === 'fail')
+  if (failed) navigate(props.adwId, failed.phase_id)
+})
 
 watchEffect(() => {
   phaseCrumb.value = selectedPhase.value?.name ?? null
@@ -432,8 +460,10 @@ function selectPhase(p: Phase) {
 
     <div v-if="session" class="run-strip">
       <span class="request" :title="session.request ?? ''">{{ session.request }}</span>
-      <StatusChip :status="session.status ?? 'fail'" />
-      <span class="dim">started {{ fmtDate(session.started_at) }}</span>
+      <StatusChip :status="displayStatus" />
+      <span class="dim" :title="fmtDate(session.started_at)">
+        started {{ fmtRelative(session.started_at, nowMs) }}
+      </span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
         <StatChip kind="runtime" :value="sessionDurationMs" />
@@ -545,6 +575,13 @@ function selectPhase(p: Phase) {
     </div>
     <div v-else-if="loaded" class="empty-state">no phases recorded for this session</div>
     <div v-else-if="!apiError" class="empty-state">loading trace…</div>
+
+    <NextActions
+      v-if="session"
+      :adw-id="props.adwId"
+      :status="displayStatus"
+      :not-accepted-reason="notAcceptedReason"
+    />
 
     <PhaseDetail
       v-if="selectedPhase"

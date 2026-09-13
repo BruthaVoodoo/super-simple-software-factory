@@ -15,7 +15,7 @@ defineEmits<{ toggle: [] }>()
 
 <template>
   <section class="dsec">
-    <button class="dsec-head" @click="$emit('toggle')">
+    <button class="dsec-head" :aria-expanded="open" @click="$emit('toggle')">
       <span class="chev">{{ open ? '▾' : '▸' }}</span>
       <component :is="icon" v-if="icon" class="dsec-icon" :size="19" :stroke-width="2" />
       <span class="dsec-title">{{ title }}</span>
@@ -72,5 +72,10 @@ defineEmits<{ toggle: [] }>()
 
 .dsec-body {
   padding-top: 10px;
+}
+.dsec-head:focus-visible {
+  outline: 2px solid var(--dim);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 </style>

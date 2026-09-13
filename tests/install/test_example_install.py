@@ -161,6 +161,8 @@ class PathWithSpacesTests(FactoryTestCase):
 
 
 def _excluded(path: Path) -> bool:
-    """Mirror prepare_example_target's exclusion rules for the source manifest."""
-    from tests.support.example import excluded_name
-    return any(excluded_name(part) for part in path.parts)
+    """Same rules the copier applies: junk names AND excluded directories
+    (node_modules et al appear in the source tree once the UI is built)."""
+    from tests.support.example import EXCLUDED_DIRS, excluded_name
+    return (any(part in EXCLUDED_DIRS for part in path.parts)
+            or any(excluded_name(part) for part in path.parts))
