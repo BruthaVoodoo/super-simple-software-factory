@@ -6,7 +6,7 @@ Proposed design for review.
 
 ## Decision summary
 
-Evolve SSSF into a **CLI-first, template-based local software factory** while retaining the Claude Code skill and the generated Justfile as first-class interfaces.
+Evolve SSSF into a **Pi-first, CLI-first, template-based local software factory** while retaining the generated Justfile and optional Claude Code skill as interfaces.
 
 The factory source remains the product repository. The upstream `example` branch becomes the real-Pi dogfooding and integration target. Deterministic temporary repositories provide repeatable control-plane tests, but they do not replace real-Pi validation.
 
@@ -49,7 +49,7 @@ The Python runtime owns:
 - session lifecycle;
 - SQLite and raw-file traces.
 
-The runtime should depend on a coding-agent interface rather than on Claude Code. Pi remains the first concrete adapter. Claude Code remains a future adapter rather than a hard-coded assumption in the core.
+The runtime is Pi-only for this product. Claude Code is not an agent harness and is never required to install or run the factory. The runtime must not contain a Claude Code execution adapter. The `/sssf` skill is an optional operator frontend that can route commands to the same CLI and Justfile interfaces available from a terminal or Pi.
 
 ### Installation and project tooling
 
@@ -72,16 +72,16 @@ sssf run ...
 
 The canonical packaging direction is Python-native (`uvx`/`pipx`) because the runtime is Python. An `npx` launcher can be considered later, but it is not required for the first implementation.
 
-### Integrations
+### Interfaces and integrations
 
-The following are interfaces over the same runtime:
+The following are interfaces over the same Pi-based runtime:
 
-- Claude Code skill: conversational routing and instructions;
-- Justfile: project-local repeatable commands;
-- CLI: generic terminal installation, execution, and diagnostics;
+- CLI: primary generic installation, execution, and diagnostics interface;
+- Justfile: project-local repeatable workflow interface;
+- Claude Code skill: optional conversational `/sssf` frontend only;
 - visualizer: read-only trace inspection.
 
-The Claude skill is therefore retained, but it is no longer the definition of the factory itself.
+A user must be able to install and operate the factory with Pi and a terminal even when Claude Code is not installed. The Claude skill is retained for users who want `/sssf`, but it is neither the installer nor the runtime harness.
 
 ## Example branch strategy
 
@@ -203,20 +203,20 @@ Exit criteria: unauthorized changes, unrelated changes, failed agents, and inter
 - Add `sssf doctor` for prerequisites, config, model, and runtime checks.
 - Add safe update behavior separate from destructive force behavior.
 - Keep the generated Justfile unchanged as a supported project-local interface.
-- Keep `/sssf install` working through the same installation layer.
+- Keep `/sssf install` working as an optional frontend over the same installation layer.
+- Ensure direct terminal/Pi installation works without Claude Code being installed.
 
-Exit criteria: a project can be installed and diagnosed through both Claude Code and a generic terminal without divergent behavior.
+Exit criteria: a project can be installed and diagnosed through the generic CLI, direct Python entry point, or optional Claude frontend without divergent behavior or a Claude dependency.
 
-### M4 — Improve workflows and agent adapters
+### M4 — Improve Pi workflows and extensions
 
 - Make project quality commands explicit and difficult to leave as placeholders.
 - Improve workflow composition and acceptance criteria.
-- Define the coding-agent adapter interface.
-- Keep Pi as the first supported implementation.
-- Add Claude Code support only when its lifecycle and output semantics can be represented honestly.
+- Improve Pi session continuation, extension loading, and tool-boundary diagnostics.
 - Add human approval points where they improve safety.
+- Keep Claude Code out of the runtime and agent roster.
 
-Exit criteria: workflows are reusable across projects and agent implementations without duplicating orchestration logic.
+Exit criteria: workflows are reusable across projects while Pi remains the sole supported agent harness.
 
 ### M5 — Redesign the visualizer UX
 
@@ -255,9 +255,11 @@ Exit criteria: a new user can install, run, observe, diagnose, and update the fa
 3. Use temporary repositories for deterministic automated tests.
 4. Do not call a fake-Pi test an integration test.
 5. Keep the Justfile supported throughout the transition.
-6. Do not redesign the visualizer against an unstable event contract.
-7. Do not add provider integrations before the adapter boundary and lifecycle semantics are clear.
-8. Complete each milestone with evidence from the appropriate test layer.
+6. Keep direct Pi/terminal installation independent of Claude Code.
+7. Treat `/sssf` as an optional Claude frontend, never as a runtime dependency.
+8. Keep Claude Code out of the agent harness and agent roster.
+9. Do not redesign the visualizer against an unstable event contract.
+10. Complete each milestone with evidence from the appropriate test layer.
 
 ## Immediate next action
 
