@@ -2,6 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development if a subagent tool is actually available; otherwise use superpowers:executing-plans. Execute sequentially with review between tasks. Steps use checkbox (`- [ ]` syntax for tracking. Do not promise independent subagent review when it did not occur.
 
+## Execution status (all tasks complete)
+
+- **Work location:** `.worktrees/m3`, branch `feat/m3-cli-manifest` (from `main` @ 07415de). Inline execution; review was inline.
+- Task 1 (`2c6f80a`) CLI package + entry point (24 install tests).
+- Task 2 (`5a0b0bf`) shared installer + manifest + `sssf init`; direct installer delegates, writes NO manifest. Fix `f138640`: CLI test home moved out of the target tree (it polluted exact-tree assertions).
+- Task 3 (`a431d16`) init `--dry-run` — pure plan, zero writes.
+- Task 4 (`3911079`) manifest-driven `update`: untouched→update, user-modified→conflict exit 3, `--force`, dry-run, app-hash protection, unstamped→exit 2. `prepare_example_target` now stamps through the shared installer (with manifest) — the M3 world's realistic target.
+- Task 5 (`9bc73fc`) `sssf doctor` — 8 check families, credential-free, `_run_pi` seam for tests, graceful unstamped degradation. Manual run against a real prepared target honestly FAILs the starter roster's model patterns on this machine (catalog has `opencode/...` not `google/...`; fireworks kimi unregistered) — verified against the real catalog and recorded in the acceptance report as an environment fact.
+- Task 6 (`237150d`) `sssf install-skill` + cookbook CLI paragraph.
+- Task 7 — lanes twice green (115/37/47), `git diff --check` clean, smoke PASS (`cf0f7a89`, 10.0s, `evt_1867b68cea2f`, 23904 tokens / $0.0023), report in `docs/baselines/m3-acceptance.md`. Historical example worktree verified unchanged.
+
+**M3 COMPLETE. Next: `finishing-a-development-branch` — merge requires operator approval.**
+
 **Goal:** Make installation independent of Claude Code: a `sssf` CLI (`init`, `update`, `doctor`, `install-skill`) with a stamped-version manifest and conflict-preserving updates, while the direct Python installer and every Justfile recipe keep working.
 
 **Architecture:** A stdlib-plus-runtime-deps package `sssf_cli/` at the factory root holds one installer module (`installer.py`) that `scripts/install.py`, `sssf init`, and the `/sssf` skill all delegate to. Installation writes a manifest (`.sssf/manifest.json`) recording each template's source hash and each stamped file's target hash. `sssf update` compares the CURRENT factory templates against the manifest: untouched targets update, user-modified targets become reported conflicts that only an explicit `--force` overwrites. `sssf doctor` runs bounded, credential-free environment checks; `sssf install-skill` copies the operator frontend skill separately.
@@ -135,7 +148,7 @@ Credential check: doctor verifies resolvability of every model and says explicit
 **Interfaces:**
 - Produces: `sssf_cli.cli:main()` dispatching `init|update|doctor|install-skill` with `--version`; unknown command → exit 2 with usage; `sssf --version` prints `sssf <x.y.z>`; commands that are not implemented yet exit 2 with `not implemented until a later task` (replaced task-by-task).
 
-- [ ] **Step 1: Write the failing test** in `tests/install/test_cli.py`
+- [x] **Step 1: Write the failing test** in `tests/install/test_cli.py`
 
 ```python
 """The sssf CLI entry point, invoked through uv like an operator would."""
@@ -172,9 +185,9 @@ class CliEntryPointTests(FactoryTestCase):
             self.assertIn(command, result.stdout)
 ```
 
-- [ ] **Step 2: Run — expect failure** (`sssf` not found / no entry point).
+- [x] **Step 2: Run — expect failure** (`sssf` not found / no entry point).
 
-- [ ] **Step 3: Implement.** pyproject per Decision A (keep the existing `[dependency-groups] test` exactly), then:
+- [x] **Step 3: Implement.** pyproject per Decision A (keep the existing `[dependency-groups] test` exactly), then:
 
 ```python
 # sssf_cli/cli.py
@@ -215,9 +228,9 @@ if __name__ == "__main__":
 
 `sssf_cli/__init__.py`: `__version__ = "0.1.0"`. Then `uv lock && uv sync --locked --group test --python 3.11`.
 
-- [ ] **Step 4: Run — green.** `uv run --locked --project . sssf --version` and `just test-install` (21 + 3 = 24).
+- [x] **Step 4: Run — green.** `uv run --locked --project . sssf --version` and `just test-install` (21 + 3 = 24).
 
-- [ ] **Step 5: Commit** — `feat: package the sssf cli entry point`.
+- [x] **Step 5: Commit** — `feat: package the sssf cli entry point`.
 
 ---
 
@@ -232,7 +245,7 @@ if __name__ == "__main__":
 - Produces: `installer.TEMPLATES: Path` (factory templates dir), `installer.apply(target: Path, force: bool = False, write_manifest: bool = True) -> Plan` where `Plan` is a dataclass with `stamped: list[str]`, `skipped: list[str]`, `gitignore_added: list[str]`; `sssf init [--force]` calls it. `scripts/install.py` main() delegates to `apply(cwd, force=args.force, write_manifest=False)` — **the direct installer writes NO manifest** (that stays an `init` behavior so legacy installs are untouched); equivalence between the two paths covers everything else.
 - Produces: `manifest.load(target) -> Manifest | None`, `manifest.write(target, entries: dict[str, ManifestEntry])`, `ManifestEntry(source_hash: str, target_hash: str)`, canonical-JSON (`sort_keys`, `separators`) so re-writes are diff-stable.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 In `tests/unit/test_manifest.py`:
 
@@ -310,9 +323,9 @@ class InitTests(FactoryTestCase):
 
 (`stamp` and `TEMPLATE` from `tests.support.factory`; `manifest` importable because `sssf_cli` is on the path inside the test process — add `sys.path.insert(0, str(ROOT))` at module top after bootstrap-style import.)
 
-- [ ] **Step 2: Run — expect failures** (no `sssf_cli`).
+- [x] **Step 2: Run — expect failures** (no `sssf_cli`).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
 
 `sssf_cli/manifest.py`:
 
@@ -392,9 +405,9 @@ def main() -> int:
 
 (The dependency header stays; output text stays operator-compatible — "stamped/skipped" lines.)
 
-- [ ] **Step 4: Run — green.** `just test-install` (24 + 3) and `just test-unit`.
+- [x] **Step 4: Run — green.** `just test-install` (24 + 3) and `just test-unit`.
 
-- [ ] **Step 5: Commit** — `feat: shared installer with stamped-version manifest and sssf init`.
+- [x] **Step 5: Commit** — `feat: shared installer with stamped-version manifest and sssf init`.
 
 ---
 
@@ -407,7 +420,7 @@ def main() -> int:
 **Interfaces:**
 - Produces: `installer.plan(target, force) -> Plan` (pure classification, no writes: `stamped` = would-write, `skipped` = would-skip, `gitignore_added` = would-append); `sssf init --dry-run` prints the plan and exits 0 without touching the filesystem.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 class InitDryRunTests(FactoryTestCase):
@@ -426,11 +439,11 @@ class InitDryRunTests(FactoryTestCase):
             before)
 ```
 
-- [ ] **Step 2: Run — expect failure** (`init --dry-run` currently stamps for real).
+- [x] **Step 2: Run — expect failure** (`init --dry-run` currently stamps for real).
 
-- [ ] **Step 3: Implement** — refactor `apply` into `plan(target, force) -> Plan` + `apply = plan + perform`; CLI: `if args.dry_run: print(plan)`. Add `--dry-run` to the init parser.
+- [x] **Step 3: Implement** — refactor `apply` into `plan(target, force) -> Plan` + `apply = plan + perform`; CLI: `if args.dry_run: print(plan)`. Add `--dry-run` to the init parser.
 
-- [ ] **Step 4: Run — green**, then **commit** — `feat: dry-run plan for sssf init`.
+- [x] **Step 4: Run — green**, then **commit** — `feat: dry-run plan for sssf init`.
 
 ---
 
@@ -443,7 +456,7 @@ class InitDryRunTests(FactoryTestCase):
 **Interfaces:**
 - Produces: `installer.plan_update(target) -> UpdatePlan` with `updates: list[str]`, `conflicts: list[str]`, `adds: list[str]`, `orphans: list[str]`, `skips: list[str]`; `sssf update [--dry-run] [--force]` — `--force` overwrites conflicts too. Exit 0 unless a conflict is present and `--force` was not given (exit 3, so scripts can detect "user-modified files need attention").
 
-- [ ] **Step 1: Failing tests** in `tests/install/test_update.py`
+- [x] **Step 1: Failing tests** in `tests/install/test_update.py`
 
 ```python
 """Manifest-driven update: untouched targets update, user-modified conflict."""
@@ -513,13 +526,13 @@ class UpdateTests(FactoryTestCase):
                 sha256((self.target / path).read_bytes()).hexdigest(), expected, path)
 ```
 
-- [ ] **Step 2: Run — expect failure** (no `update` behavior).
+- [x] **Step 2: Run — expect failure** (no `update` behavior).
 
-- [ ] **Step 3: Implement** `plan_update` per Decision C: load manifest (absent → error exit 2 "not stamped — run sssf init"), classify each manifest entry + each current template file, apply non-conflicts, re-write the manifest with fresh source/target hashes, print the classification. New-template handling: `adds` stamp through the same mapping logic.
+- [x] **Step 3: Implement** `plan_update` per Decision C: load manifest (absent → error exit 2 "not stamped — run sssf init"), classify each manifest entry + each current template file, apply non-conflicts, re-write the manifest with fresh source/target hashes, print the classification. New-template handling: `adds` stamp through the same mapping logic.
 
-- [ ] **Step 4: Run — green** (`just test-install` and `just test-unit`).
+- [x] **Step 4: Run — green** (`just test-install` and `just test-unit`).
 
-- [ ] **Step 5: Commit** — `feat: manifest-driven update with conflict reporting`.
+- [x] **Step 5: Commit** — `feat: manifest-driven update with conflict reporting`.
 
 ---
 
@@ -533,7 +546,7 @@ class UpdateTests(FactoryTestCase):
 **Interfaces:**
 - Produces: `doctor.run_checks(target: Path, config: str | None = None) -> list[Check]` (`Check = (name, ok, detail)`); `sssf doctor [--config PATH]` prints one line per check and exits 0 only when all pass. Check 7 imports the stamped target's `adw_modules` with dotenv suppressed (the `tests/support/imports.py` technique, replicated in `sssf_cli/doctor.py` — test-support code is never imported by the CLI).
 
-- [ ] **Step 1: Failing tests** in `tests/unit/test_doctor.py`
+- [x] **Step 1: Failing tests** in `tests/unit/test_doctor.py`
 
 ```python
 """Doctor: bounded, credential-free environment checks (mocked subprocesses)."""
@@ -573,13 +586,13 @@ class DoctorTests(RuntimeTestCase):
         self.assertFalse(by_name["factory"].ok)
 ```
 
-- [ ] **Step 2: Run — expect failure** (module absent).
+- [x] **Step 2: Run — expect failure** (module absent).
 
-- [ ] **Step 3: Implement** per Decision E. `pi --version`/`--list-models` subprocesses get a 10s timeout and report failure text in `detail` (never full provider output — first line only). The `models` check resolves via the target's stamped `adw_modules.agent_pi.resolve_model` with `dotenv.load_dotenv` patched off during import. Credential wording in the final output: `"credentials: not checked — validity is proven only by a real run (just smoke-real-pi)"` as an informational line, never a failure.
+- [x] **Step 3: Implement** per Decision E. `pi --version`/`--list-models` subprocesses get a 10s timeout and report failure text in `detail` (never full provider output — first line only). The `models` check resolves via the target's stamped `adw_modules.agent_pi.resolve_model` with `dotenv.load_dotenv` patched off during import. Credential wording in the final output: `"credentials: not checked — validity is proven only by a real run (just smoke-real-pi)"` as an informational line, never a failure.
 
-- [ ] **Step 4: Run — green.**
+- [x] **Step 4: Run — green.**
 
-- [ ] **Step 5: Commit** — `feat: sssf doctor environment checks`.
+- [x] **Step 5: Commit** — `feat: sssf doctor environment checks`.
 
 ---
 
@@ -593,7 +606,7 @@ class DoctorTests(RuntimeTestCase):
 **Interfaces:**
 - Produces: `skill.install(target: Path, force: bool = False) -> SkillPlan(stamped, skipped)` — copies the current skill tree into `<target>/.claude/skills/sssf` with Decision F's exclusions and a symlink/traversal guard; `sssf install-skill [--target PATH] [--force]`.
 
-- [ ] **Step 1: Failing tests** (append to `tests/install/test_cli.py`)
+- [x] **Step 1: Failing tests** (append to `tests/install/test_cli.py`)
 
 ```python
 class InstallSkillTests(FactoryTestCase):
@@ -616,9 +629,9 @@ class InstallSkillTests(FactoryTestCase):
         self.assertEqual(installed.read_bytes(), b"operator-owned skill\n")
 ```
 
-- [ ] **Step 2: Run — expect failure.**
+- [x] **Step 2: Run — expect failure.**
 
-- [ ] **Step 3: Implement** `sssf_cli/skill.py` (exclusions + guards, `--force` overwrites), wire the subcommand, add the cookbook paragraph:
+- [x] **Step 3: Implement** `sssf_cli/skill.py` (exclusions + guards, `--force` overwrites), wire the subcommand, add the cookbook paragraph:
 
 ```markdown
 ## CLI alternative (no Claude Code needed)
@@ -630,9 +643,9 @@ checkout: `uv run --project <factory> sssf init`. `sssf install-skill` copies
 this skill for Claude Code users — optional, never required at runtime.
 ```
 
-- [ ] **Step 4: Run — green.**
+- [x] **Step 4: Run — green.**
 
-- [ ] **Step 5: Commit** — `feat: optional sssf install-skill and cli cookbook`.
+- [x] **Step 5: Commit** — `feat: optional sssf install-skill and cli cookbook`.
 
 ---
 
@@ -642,13 +655,13 @@ this skill for Claude Code users — optional, never required at runtime.
 - Modify: `docs/testing.md`, `.claude/skills/sssf/cookbooks/install.md`
 - Create: `docs/baselines/m3-acceptance.md`
 
-- [ ] **Step 1: Extend `docs/testing.md`** with an M3 section: the four commands, the manifest file, update/conflict/force semantics, that the direct installer writes no manifest while `init` does, and the equivalence guarantee.
+- [x] **Step 1: Extend `docs/testing.md`** with an M3 section: the four commands, the manifest file, update/conflict/force semantics, that the direct installer writes no manifest while `init` does, and the equivalence guarantee.
 
-- [ ] **Step 2: Run every offline lane twice** — `just test` (all lanes green, zero skips), `git diff --check`.
+- [x] **Step 2: Run every offline lane twice** — `just test` (all lanes green, zero skips), `git diff --check`.
 
-- [ ] **Step 3: Equivalence proof on a fresh pinned-Inkwell target**: `sssf init` and the direct installer produce byte-identical runtime files (the Task 2 test generalizes the claim; run `just test-install` as the recorded evidence).
+- [x] **Step 3: Equivalence proof on a fresh pinned-Inkwell target**: `sssf init` and the direct installer produce byte-identical runtime files (the Task 2 test generalizes the claim; run `just test-install` as the recorded evidence).
 
-- [ ] **Step 4: Real smoke re-run** with the operator-approved model:
+- [x] **Step 4: Real smoke re-run** with the operator-approved model:
 
 ```bash
 SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi
@@ -656,9 +669,9 @@ SSSF_SMOKE_MODEL=opencode/gpt-5.6-luna just smoke-real-pi
 
 Plus one `sssf doctor` run against a prepared target, recorded verbatim (names + ok flags + details) in the report.
 
-- [ ] **Step 5: Write `docs/baselines/m3-acceptance.md`** — same discipline as M1/M2: commits, versions, lane counts, the equivalence proof, doctor output, smoke evidence, historical-worktree preservation.
+- [x] **Step 5: Write `docs/baselines/m3-acceptance.md`** — same discipline as M1/M2: commits, versions, lane counts, the equivalence proof, doctor output, smoke evidence, historical-worktree preservation.
 
-- [ ] **Step 6: Commit** — `docs: record m3 cli and installation acceptance`.
+- [x] **Step 6: Commit** — `docs: record m3 cli and installation acceptance`.
 
 ---
 

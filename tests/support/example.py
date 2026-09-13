@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from tests.support.factory import ROOT, SKILL, git, stamp
@@ -175,7 +176,12 @@ def prepare_example_target(destination: Path, env: dict[str, str]) -> dict[str, 
     before = export_example(ROOT, destination)
     manifest = _copy_skill_resources(SKILL, destination / ".claude" / "skills" / "sssf")
     _verify_copy(SKILL, destination / ".claude" / "skills" / "sssf", manifest)
-    stamp(destination, env).check_returncode()
+    sys.path.insert(0, str(ROOT))
+    from sssf_cli.installer import apply
+    # Stamp through the SHARED installer with a manifest: in the M3 world a
+    # prepared target is what `sssf init` produces (the direct-installer path
+    # is separately covered by test_install.py).
+    apply(destination, force=False, write_manifest=True)
     with (destination / ".gitignore").open("a") as gitignore:
         gitignore.write("\n# macOS AppleDouble junk this volume regenerates\n._*\n")
     _strip_appledouble(destination)

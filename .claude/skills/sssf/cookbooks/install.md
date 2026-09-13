@@ -20,6 +20,10 @@ just smoke-real-pi --probe-file README.md
 
 Two bounded real-Pi calls (read a file, write a receipt, recall a remembered value with no tools) plus a trace check. Needs your roster's model and real auth; spends a few thousand tokens. The offline regression suite lives in the factory checkout — see `docs/testing.md`.
 
+## CLI alternative (no Claude Code needed)
+
+`sssf init` stamps the same files as `/sssf install`; `sssf update` applies new factory versions while protecting your edits (conflicts reported, `--force` overwrites); `sssf doctor` verifies the environment. Run from the factory checkout: `uv run --project <factory> sssf init`. `sssf install-skill` copies this skill for Claude Code users — optional, never required at runtime.
+
 ## What gets stamped
 
 `install.py` copies `templates/` into the cwd:

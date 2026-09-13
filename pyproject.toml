@@ -1,11 +1,24 @@
 [project]
 name = "sssf-development"
-version = "0.0.0"
+version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+# The four existing runtime dependencies. sssf doctor imports the stamped
+# target's adw_modules, which needs pydantic/dotenv — so the CLI env carries
+# them too. Test-only usage keeps the same group for --group test flows.
+dependencies = ["pydantic>=2,<3", "pyyaml>=6,<7", "python-dotenv>=1,<2", "rich>=13,<15"]
+
+[project.scripts]
+sssf = "sssf_cli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sssf_cli"]
+
+[tool.uv]
+package = true
 
 [dependency-groups]
 test = ["pydantic>=2,<3", "pyyaml>=6,<7", "python-dotenv>=1,<2", "rich>=13,<15"]
-
-[tool.uv]
-package = false

@@ -64,6 +64,26 @@ Excluded names are asserted explicitly by tests. Details:
 - Root `just test-*` recipes are development commands and are never stamped
   into user projects.
 
+## The sssf CLI (M3)
+
+Run from the factory checkout: `uv run --locked --project <factory> sssf <command>`.
+
+| Command | Does | Guarantees |
+|---|---|---|
+| `sssf init [--dry-run] [--force]` | stamps the factory + writes `.sssf/manifest.json` | byte-identical to the direct installer, plus the manifest |
+| `sssf update [--dry-run] [--force]` | manifest-driven sync | overwrites only files whose bytes still match the manifest's target hash; user-modified files are reported as conflicts (exit 3) and untouched; `--force` overwrites; application files are never touched |
+| `sssf doctor [--config PATH]` | python/uv/just/git/pi/catalog/model-resolution/factory checks | credential-FREE: resolvability only, validity is proven only by a real smoke run |
+| `sssf install-skill [--target] [--force]` | copies the optional /sssf skill | separate from runtime installation; never required |
+
+The manifest (`.sssf/manifest.json`, committed in the target) records each
+stamped file's SOURCE hash (the template bytes at install time) and TARGET
+hash (the bytes as stamped). `sssf update` uses both: template changed +
+target untouched → update; template changed + target modified → conflict.
+The direct Python installer (`uv run <skill>/scripts/install.py`) delegates
+to the same code and keeps working, but writes NO manifest — legacy
+installs are byte-identical to what they always produced. Run `sssf init` on
+such a target to opt into update support.
+
 ## The real-Pi smoke command
 
 `SSSF_SMOKE_MODEL=provider/model-id just smoke-real-pi` (development lane)
