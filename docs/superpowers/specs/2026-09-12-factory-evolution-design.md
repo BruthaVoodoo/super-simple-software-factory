@@ -1,277 +1,382 @@
-# Software Factory Evolution Design
+# SSSF Evolution Design
 
-## Status
+## 1. Status and scope
 
-Proposed design for review.
+**Status:** proposed design for review.
 
-## Decision summary
+This document defines the next development cycle for the Super Simple Software Factory (SSSF). It is intentionally limited to the local, Pi-based factory: installation into an existing project, Justfile workflows, deterministic Python orchestration, SQLite traces, and the local visualizer.
 
-Evolve SSSF into a **Pi-first, CLI-first, template-based local software factory** while retaining the generated Justfile and optional Claude Code skill as interfaces.
+This document does not authorize implementation of a hosted service, remote workers, multi-user accounts, or a second agent harness.
 
-The factory source remains the product repository. The upstream `example` branch becomes the real-Pi dogfooding and integration target. Deterministic temporary repositories provide repeatable control-plane tests, but they do not replace real-Pi validation.
+## 2. Product definition
 
-The factory is not being turned into a hosted web application in this phase.
+SSSF is a local software factory that installs into an existing project and runs repeatable agent-plus-code workflows.
 
-## Goals
+The product has one supported agent harness:
 
-1. Preserve the current install-into-an-existing-project workflow.
-2. Keep the Justfile as the primary project-local workflow surface.
-3. Make the factory usable without Claude Code through a generic CLI.
-4. Make real Pi integration an explicit, tested contract.
-5. Improve safety before increasing agent autonomy.
-6. Improve the visualizer after the trace and lifecycle contracts are reliable.
-7. Document and preserve a staged roadmap so work stays focused.
-8. Use the upstream example branch as a real, working target project.
+> **Pi is the only agent harness supported by SSSF.**
 
-## Non-goals for the first evolution cycle
+Claude Code is not an agent harness in SSSF. Claude Code is an optional operator interface that can expose `/sssf` commands. A user must be able to install and operate SSSF without Claude Code installed.
 
-- A hosted multi-user service.
-- Cloud execution or remote worker management.
-- Replacing the local SQLite trace architecture.
-- Supporting every coding-agent provider immediately.
-- Treating fake or recorded agent output as proof of Pi integration.
-- Rewriting the existing install flow before it is covered by tests.
+The product interfaces are:
 
-## Product boundary
+| Interface | Required? | Responsibility |
+|---|---:|---|
+| Pi | yes | Execute every agent phase |
+| `sssf` CLI | yes, after M3 | Install, diagnose, and invoke factory operations from a terminal |
+| generated Justfile | yes | Provide project-local repeatable workflow commands |
+| Claude Code `/sssf` skill | optional | Translate conversational requests into CLI/Justfile operations |
+| visualizer | yes | Read-only inspection of SQLite traces |
 
-The system will have three layers.
+The Claude skill does not install or execute agents by itself. It invokes the same installation and workflow commands available to a terminal user.
 
-### Factory runtime
+## 3. Fixed architectural decisions
 
-The Python runtime owns:
+### 3.1 Pi-only runtime
 
-- phase sequencing;
-- agent invocation;
-- typed envelopes;
-- gates and retries;
-- permissions;
-- quality commands;
-- session lifecycle;
-- SQLite and raw-file traces.
+All agent phases call Pi through the existing `agent_pi.py` path. No Claude Code subprocess is started by the runtime.
 
-The runtime is Pi-only for this product. Claude Code is not an agent harness and is never required to install or run the factory. The runtime must not contain a Claude Code execution adapter. The `/sssf` skill is an optional operator frontend that can route commands to the same CLI and Justfile interfaces available from a terminal or Pi.
+The target runtime configuration has no selectable alternative harness. During the M3 migration, an existing `coding_agent` field is accepted only when its value is `pi`; any other value is invalid. The `agent_cc.py` stub and `claude_code` schema option are removed in M4.
 
-### Installation and project tooling
+Model provider and agent harness are separate concepts. A model supplied by Google, OpenRouter, Fireworks, OpenAI, or another provider is still executed through Pi. The starter roster remains provider-configurable; this design does not prohibit a model provider unless a later policy explicitly does so.
 
-The current installer remains the source of truth for stamping a project. It will eventually be exposed through a generic CLI, while preserving its current behavior:
+### 3.2 Installation is CLI-first
 
-- execute from the target project root;
-- stamp `adws/`, prompts, config, environment examples, and a Justfile;
-- skip existing files by default;
-- require explicit force/update behavior for overwrites;
-- add runtime paths to `.gitignore`.
+The current installer remains the behavioral baseline. The generic CLI becomes the primary installation interface in M3.
 
-The target interface is:
+The supported installation paths are:
 
 ```text
-uvx sssf init
-sssf doctor
-sssf update
-sssf run ...
+uvx sssf init                 # primary path after M3
+uv run <installer>/install.py # compatibility path during migration
+/sssf install                 # optional Claude frontend after skill installation
 ```
 
-The canonical packaging direction is Python-native (`uvx`/`pipx`) because the runtime is Python. An `npx` launcher can be considered later, but it is not required for the first implementation.
+All three paths must call the same installation library after M3. They must produce the same target files and the same conflict behavior.
 
-### Interfaces and integrations
+`sssf init` runs from the target project root and performs these actions:
 
-The following are interfaces over the same Pi-based runtime:
+1. copy runtime templates into `adws/`;
+2. copy prompt files into `adws/adw_data/prompt_engineering/`;
+3. copy the Pi extension templates into `adws/adw_data/harness_engineering/`;
+4. copy the starter roster into `adws/adw_sssf_config/sssf.config.yaml`;
+5. copy `.env.sample` and the generated `justfile`;
+6. add runtime paths to `.gitignore`;
+7. report stamped files, skipped files, and conflicts.
 
-- CLI: primary generic installation, execution, and diagnostics interface;
-- Justfile: project-local repeatable workflow interface;
-- Claude Code skill: optional conversational `/sssf` frontend only;
-- visualizer: read-only trace inspection.
+The default behavior remains non-destructive: existing files are skipped. An explicit update/force operation is required to overwrite a file.
 
-A user must be able to install and operate the factory with Pi and a terminal even when Claude Code is not installed. The Claude skill is retained for users who want `/sssf`, but it is neither the installer nor the runtime harness.
+### 3.3 Claude skill is an optional integration
 
-## Example branch strategy
+The source repository retains the Claude skill through M3 so existing `/sssf` installation remains available. The skill is packaging and documentation, not runtime code. M3 moves its source into a dedicated integration directory while preserving the target path `.claude/skills/sssf/` for users who explicitly install it.
 
-The upstream `example` branch is a stamped, real project and will serve three purposes:
+The source layout after M3 is:
 
-1. **baseline** — establish the current behavior before changes;
-2. **dogfooding target** — run real Pi workflows through the Justfile and visualizer;
-3. **product reference** — observe the experience of a complete factory installation.
+```text
+integrations/claude-skill/sssf/  # optional skill source
+src/sssf/                        # CLI and installation library
+templates/                       # stamped runtime files
+apps/visualizer/                 # trace UI
+```
 
-It is not the sole automated test fixture because it contains model-dependent behavior and historical run artifacts.
+The target project may receive `.claude/skills/sssf/` only when the user explicitly installs the optional skill. A target project using only Pi, the CLI, and Justfile does not need `.claude/`.
 
-The working layout should be conceptually:
+### 3.4 Justfile remains first-class
+
+The generated Justfile remains a supported interface. The CLI does not replace project-local Just commands.
+
+The installed project continues to expose commands such as:
+
+```text
+just demo
+just scout ...
+just plan ...
+just sdlc ...
+just sessions
+just phases <adw-id>
+just obs
+```
+
+Changes to CLI behavior must not silently change the meaning of existing Justfile recipes. Recipe changes require an explicit migration note.
+
+## 4. Example branch and Factory Lab
+
+The upstream `example` branch is the Factory Lab for this development cycle. It is not a plan for creating another demo application.
+
+The Factory Lab has two forms:
+
+1. a separate worktree used for manual real-Pi dogfooding;
+2. clean temporary copies used by automated installation and control-plane tests.
+
+The source repository and Factory Lab remain separate:
 
 ```text
 super-simple-software-factory/  # factory source, normally main
-sssf-example/                   # separate worktree of upstream/example
+sssf-example/                   # worktree of the pinned upstream/example commit
 ```
 
-The example branch should be recorded by source URL and commit SHA in the project documentation so baseline runs are reproducible. It should be synchronized deliberately, not silently treated as an always-moving dependency.
+The baseline must record:
 
-## Factory Lab and test strategy
+- upstream URL;
+- example branch commit SHA;
+- local worktree path;
+- command invoked;
+- ADW ID, when a workflow runs;
+- result and failure output.
 
-For this roadmap, the pinned upstream `example` worktree is the Factory Lab. M0 establishes it as the manual, real-Pi target. M1 builds deterministic and automated test coverage around copies of that target; it does not create a second demo application by default. A smaller fixture should only be introduced if the example project proves too large or too model-dependent for a particular test.
+The example project is used for manual acceptance because it contains a complete stamped factory, real prompts, a Justfile, a demo application, and historical traces. It is not the only automated fixture because historical state and model output are not deterministic.
 
-The project will use distinct test layers with explicit names and responsibilities.
+M0 and M1 do not create a second demo application. A test that does not need the full example project may create a temporary repository containing only the files required by that test; such a repository is disposable test input, not a product example and not a second Factory Lab.
 
-### Unit tests
+## 5. Test model
 
-These do not invoke Pi. They cover pure or mostly deterministic behavior:
+Every test command must identify which layer it exercises.
 
-- configuration loading and validation;
-- Pydantic data types;
+### 5.1 Unit tests
+
+Unit tests do not start Pi or require API credentials. They cover:
+
+- configuration parsing and validation;
+- Pydantic models;
+- prompt rendering;
 - gates;
 - path matching and permission policy;
-- SQLite migrations;
-- change capture helpers;
-- prompt rendering.
+- SQLite schema creation and migrations;
+- Git change-capture helpers.
 
-### Control-plane tests
+### 5.2 Control-plane tests
 
-These may use a fake or recorded Pi process. They test the factory's orchestration behavior, not Pi itself:
+Control-plane tests use a deterministic Pi test double or recorded Pi event stream. They test SSSF behavior around an agent call, not the Pi product.
 
-- phase success and failure;
-- malformed-envelope retries;
-- gate correction loops;
-- permission breaches;
+They cover:
+
+- phase transitions;
+- malformed JSON retries;
+- gate-correction retries;
+- permission-breach handling;
 - process cleanup;
 - session finalization;
 - usage aggregation;
 - event and envelope persistence.
 
-A control-plane test must be labeled as such and must never be described as a Pi integration test.
+These tests must be labeled `control-plane`. A passing control-plane test is never reported as proof of Pi integration.
 
-### Real-Pi smoke tests
+### 5.3 Real-Pi smoke test
 
-These invoke the real Pi executable and a real configured provider. They validate:
+The real-Pi smoke test starts the installed `pi` executable and uses a configured provider. It validates:
 
-- executable discovery and command-line flags;
-- provider/model resolution;
-- authentication;
-- JSONL streaming;
+- executable discovery;
+- Pi command-line flags;
+- model resolution through Pi;
+- provider authentication;
+- JSONL output streaming;
 - tool-call event parsing;
 - session creation and continuation;
-- real envelope output;
+- typed envelope parsing;
 - real file changes;
-- real trace generation.
+- SQLite trace generation.
 
-Real-Pi smoke tests are the integration acceptance gate. They may be opt-in locally and required for release or scheduled verification, but a fake Pi cannot substitute for them.
+The command is:
 
-### Example-project dogfooding
+```text
+just smoke-real-pi
+```
 
-The upstream example worktree is used for human-oriented acceptance:
+The command must fail clearly when Pi, the model, or credentials are unavailable. It must not silently fall back to a test double.
 
-- run the existing Justfile workflows;
-- inspect real traces in the visualizer;
-- evaluate prompt and workflow quality;
-- assess installation and upgrade ergonomics;
-- validate the end-to-end user experience.
+The real-Pi smoke test is required for M0 completion and for release acceptance. Unit-test and control-plane commands do not run it. If Pi or provider credentials are unavailable, the smoke test must fail with a prerequisite message and M0 remains incomplete.
 
-## Milestone roadmap
+### 5.4 Factory Lab dogfooding
 
-### M0 — Baseline the real example branch
+Factory Lab dogfooding uses real Pi, the generated Justfile, and the visualizer. It evaluates product behavior that automated tests cannot judge well:
 
-- Fetch the upstream `example` branch into a separate worktree.
-- Run its real-Pi workflows.
-- Open and inspect the visualizer.
-- Record successful paths, confusing paths, and failures.
-- Pin the baseline commit in documentation.
+- prompt usefulness;
+- workflow ergonomics;
+- clarity of failure reports;
+- quality of generated plans and code;
+- trace readability;
+- visualizer information architecture.
 
-Exit criteria: there is a written current-state report and a known reproducible real-Pi example run.
+## 6. Milestone roadmap
+
+### M0 — Baseline the upstream Factory Lab
+
+**Purpose:** establish the current real-Pi behavior before changing the factory.
+
+**Actions:**
+
+1. Add or use an upstream remote pointing to `https://github.com/disler/super-simple-software-factory.git`.
+2. Fetch the `example` branch.
+3. Create a separate worktree at a path outside the factory source checkout.
+4. Inspect the stamped files, Justfile, prompts, config, and existing traces.
+5. Run `just demo` from the example worktree. This is the fixed M0 real-Pi smoke path because it exercises the existing read-only `adw_prompt` and `adw_scout` workflows.
+6. Start the visualizer against the example trace database with `just obs`. If Bun dependencies or a browser are unavailable, record the exact prerequisite failure in the baseline report; this blocks the visualizer portion of M0 but does not change the real-Pi command.
+7. Write the baseline report.
+
+**Required output:**
+
+```text
+docs/baselines/2026-09-12-example-branch.md
+```
+
+The report must include the pinned SHA, exact commands, environment prerequisites, observed output, failures, and either screenshots/trace references or an explicit visualizer prerequisite failure.
+
+**Exit condition:** `just demo` completes with real Pi from the pinned example worktree and the report makes the visualizer result explicit. If `just demo` cannot run, M0 is incomplete and the report records the blocking prerequisite.
+
+M0 does not change runtime code and does not create a new application.
 
 ### M1 — Build the regression harness around the Factory Lab
 
-- Keep the pinned example worktree as the manual dogfooding target.
-- Create temporary copies or clones from the pinned example commit for clean-install tests.
-- Add deterministic control-plane tests using those temporary targets where practical.
-- Add a real-Pi smoke command against the example worktree or a clean copy of it.
-- Verify Justfile commands and SQLite trace output.
-- Ensure tests distinguish fake/recorded Pi from real Pi.
-- Introduce a smaller target fixture only when a specific test cannot reasonably use the example project.
+**Purpose:** make installation and control-plane behavior repeatable without replacing real-Pi validation.
 
-Exit criteria: the example project is the documented manual Factory Lab, clean temporary copies can be installed and tested, and a real-Pi smoke path completes against the example-based target.
+**Actions:**
+
+1. Use the pinned example project as the manual dogfooding target.
+2. Create clean temporary copies or clones from the pinned example commit for installation tests.
+3. Add unit tests for the modules listed in section 5.1.
+4. Add control-plane tests for the failure and retry cases listed in section 5.2.
+5. Add the `smoke-real-pi` command and run it against the example-based target.
+6. Verify Justfile recipes and SQLite trace output in a clean target.
+7. Add a smaller fixture only when a specific test cannot use the example-based target; document that reason beside the fixture.
+
+**Required outputs:**
+
+- automated test commands and test files;
+- `just smoke-real-pi`;
+- a clean-target install test;
+- a documented distinction between control-plane and real-Pi tests.
+
+**Exit condition:**
+
+- clean temporary copies can be installed without manual file preparation;
+- control-plane tests pass without API calls;
+- `just smoke-real-pi` completes with real Pi;
+- the example worktree remains available for manual dogfooding;
+- no test claims that a test double proves Pi integration.
 
 ### M2 — Harden safety and lifecycle behavior
 
-- Replace line-count permission fingerprints with content/state fingerprints.
-- Define behavior for ignored-file changes.
-- Prevent commit phases from including unrelated pre-existing work.
-- Add branch or worktree isolation for suitable workflows.
-- Guarantee process cleanup on errors and signals.
-- Emit complete agent lifecycle and usage events on failed calls.
-- Fix subprocess stream handling so stderr cannot deadlock the agent process.
+**Purpose:** prevent the factory from losing user work, committing unrelated work, or leaving misleading traces.
 
-Exit criteria: unauthorized changes, unrelated changes, failed agents, and interrupted runs are all handled and tested explicitly.
+**Required changes:**
+
+1. Replace permission snapshots based only on Git line counts with per-path content/state fingerprints.
+2. Detect changes to ignored files outside the SSSF runtime directory and roll them back unless the agent explicitly has permission to modify them.
+3. Prevent commit phases from staging unrelated pre-existing changes; stage only files belonging to the current run.
+4. Run every workflow that can modify and commit code in a dedicated branch/worktree. Read-only workflows may run in the operator's existing worktree.
+5. Close child processes and process records on normal completion, failure, and interruption.
+6. Emit `agent_end` usage and context data for parse failures and gate failures when a Pi result exists.
+7. Prevent the Pi subprocess from blocking because stderr is not drained.
+8. Add regression tests for each behavior.
+
+**Exit condition:** tests demonstrate that pre-existing work is preserved, unauthorized changes are detected, commit scope is controlled, interrupted runs are finalized as failed, and failed agent calls leave complete trace evidence.
 
 ### M3 — Generalize installation and add the CLI
 
-- Extract reusable installation logic from the script entry point.
-- Add `sssf init`, preserving current skip-by-default behavior.
-- Add version/manifest metadata for stamped files.
-- Add dry-run and conflict reporting.
-- Add `sssf doctor` for prerequisites, config, model, and runtime checks.
-- Add safe update behavior separate from destructive force behavior.
-- Keep the generated Justfile unchanged as a supported project-local interface.
-- Keep `/sssf install` working as an optional frontend over the same installation layer.
-- Ensure direct terminal/Pi installation works without Claude Code being installed.
+**Purpose:** make installation independent of Claude Code while preserving the current installer and Justfile experience.
 
-Exit criteria: a project can be installed and diagnosed through the generic CLI, direct Python entry point, or optional Claude frontend without divergent behavior or a Claude dependency.
+**Required commands:**
+
+```text
+sssf init
+sssf doctor
+sssf update
+sssf install-skill       # optional Claude Code integration
+```
+
+**Required changes:**
+
+1. Extract reusable installation logic from `scripts/install.py`.
+2. Implement `sssf init` using that shared logic.
+3. Keep the direct Python installer working during migration.
+4. Add a stamped-version manifest.
+5. Add dry-run output showing writes, skips, and conflicts.
+6. Make the manifest record both each template's source hash and each installed file's target hash. Make `sssf update` overwrite a stamped file only when its current target hash matches the manifest; report user-modified files as conflicts. Keep a separate explicit force operation for overwriting conflicts.
+7. Implement `sssf doctor` for Python/uv, Pi, model resolution, credentials, Git, and target-root checks.
+8. Make `sssf install-skill` optional and separate from runtime installation.
+9. Make `/sssf install` delegate to the shared installation behavior.
+10. Keep all existing Justfile recipes supported.
+
+**Exit condition:** a clean target project can be installed through `sssf init`, the direct Python installer, or `/sssf install`; all three produce equivalent runtime files; none requires Claude Code to be installed; and `just` workflows still run.
 
 ### M4 — Improve Pi workflows and extensions
 
-- Make project quality commands explicit and difficult to leave as placeholders.
-- Improve workflow composition and acceptance criteria.
-- Improve Pi session continuation, extension loading, and tool-boundary diagnostics.
-- Add human approval points where they improve safety.
-- Keep Claude Code out of the runtime and agent roster.
+**Purpose:** improve the usefulness and reliability of the Pi-based workflow catalog after the runtime is safe.
 
-Exit criteria: workflows are reusable across projects while Pi remains the sole supported agent harness.
+**Required changes:**
+
+1. Require every enabled quality block to run a configured real command; a workflow must not report acceptance while an enabled block still uses `_placeholder`.
+2. Improve workflow acceptance criteria and repair-loop reporting.
+3. Improve Pi session continuation diagnostics.
+4. Validate Pi extension paths and report unavailable extension tools clearly.
+5. Remove the inactive Claude Code stub and all non-`pi` harness configuration from the supported runtime.
+
+**Exit condition:** all supported workflows use Pi, quality commands are explicit, repair loops are observable, and no runtime path refers to Claude Code.
 
 ### M5 — Redesign the visualizer UX
 
-First stabilize the trace contract, then improve the UI.
+**Purpose:** make a running or completed workflow understandable without reading raw JSON or terminal logs.
 
-The UI should make it easy to answer:
+The UI must answer these questions from a session detail view:
 
-- which runs failed;
-- what is running now;
-- which phase failed;
-- what changed;
-- what tests reported;
-- what the run cost;
-- whether a run can be resumed or inspected safely.
+1. Is the run running, successful, failed, or not accepted?
+2. Which phase is running or failed?
+3. What caused the failure?
+4. What did the agent change?
+5. What did gates verify?
+6. What did deterministic quality commands report?
+7. What did the run cost?
+8. What can the user inspect or resume next?
 
-The redesign should cover information architecture before visual polish, then address responsive layout, typography, accessibility, empty/error states, live updates, filters, timeline readability, and tool-call detail.
+**Required sequence:**
 
-Use both real example traces and deterministic fixture traces for visual development.
+1. freeze and document the trace/API contract;
+2. add deterministic fixture traces for UI development;
+3. revise sessions-list and run-detail information architecture;
+4. improve responsive behavior and accessibility;
+5. improve typography, spacing, states, filters, and timeline readability;
+6. validate against both fixture traces and real example traces.
 
-Exit criteria: the visualizer supports live and historical traces with a clear run-to-failure-to-evidence path.
+**Exit condition:** a user can navigate from a run list to a failed phase, its evidence, its changed files, and its next action without opening the SQLite database manually.
 
 ### M6 — Package, document, and release
 
-- Document installation paths and supported integrations.
-- Document the real-Pi versus control-plane test boundary.
-- Publish a reproducible example workflow.
-- Add release/version guidance.
-- Validate a clean install into a project that does not contain the factory source.
+**Purpose:** make the Pi-based factory reproducible for a new user.
 
-Exit criteria: a new user can install, run, observe, diagnose, and update the factory without reading its internals first.
+**Required changes:**
 
-## Development rules
+1. Document CLI, Justfile, direct-installer, and optional skill installation paths.
+2. Document the control-plane versus real-Pi test boundary.
+3. Publish the pinned example workflow and baseline procedure.
+4. Add version and upgrade guidance.
+5. Test installation into a project that does not contain the factory source.
+6. Run real-Pi smoke acceptance and record its result.
 
-1. Change templates and runtime source in the factory repository, not generated files in the example worktree.
-2. Use the example worktree for real-Pi dogfooding and UX discovery.
-3. Use temporary repositories for deterministic automated tests.
-4. Do not call a fake-Pi test an integration test.
-5. Keep the Justfile supported throughout the transition.
-6. Keep direct Pi/terminal installation independent of Claude Code.
-7. Treat `/sssf` as an optional Claude frontend, never as a runtime dependency.
-8. Keep Claude Code out of the agent harness and agent roster.
-9. Do not redesign the visualizer against an unstable event contract.
-10. Complete each milestone with evidence from the appropriate test layer.
+**Exit condition:** a new user can install SSSF without Claude Code, configure Pi, run a Justfile workflow, inspect the trace, and update the installation using documented commands.
 
-## Immediate next action
+## 7. Development rules
 
-The first implementation step is M0:
+1. Modify factory source, templates, CLI, and documentation in the factory source repository.
+2. Do not modify generated factory files in the example worktree to fix source behavior.
+3. Use the pinned example worktree for real-Pi dogfooding and visualizer evaluation.
+4. Use clean temporary copies for automated installation tests.
+5. Use test doubles only for control-plane tests; never use them as Pi integration evidence.
+6. Keep the Justfile supported throughout all milestones.
+7. Keep terminal/Pi installation independent of Claude Code.
+8. Keep `/sssf` as an optional operator frontend, not a runtime dependency.
+9. Keep Claude Code out of the agent harness and roster.
+10. Do not redesign the visualizer against an undocumented or changing trace contract.
+11. Complete each milestone only when its listed output and exit condition are satisfied.
+
+## 8. Immediate next action
+
+The next action is M0, not implementation of M1:
 
 1. fetch the upstream `example` branch;
-2. create a separate worktree;
-3. inspect its stamped files and current documentation;
-4. run the cheapest real-Pi smoke path available;
-5. record the baseline before modifying the factory source.
+2. create the separate worktree;
+3. inspect the target project;
+4. run `just demo` with real Pi;
+5. run `just obs` and record whether visualizer startup succeeds;
+6. write the baseline report with the pinned SHA and all prerequisite failures.
 
-No runtime code should be changed until that baseline is captured.
+No runtime code, CLI, or new application may be created until the M0 baseline report exists and `just demo` has passed. If `just demo` is blocked by missing prerequisites, resolve those prerequisites before M1 begins.
