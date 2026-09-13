@@ -104,6 +104,8 @@ The example branch should be recorded by source URL and commit SHA in the projec
 
 ## Factory Lab and test strategy
 
+For this roadmap, the pinned upstream `example` worktree is the Factory Lab. M0 establishes it as the manual, real-Pi target. M1 builds deterministic and automated test coverage around copies of that target; it does not create a second demo application by default. A smaller fixture should only be introduced if the example project proves too large or too model-dependent for a particular test.
+
 The project will use distinct test layers with explicit names and responsibilities.
 
 ### Unit tests
@@ -171,16 +173,17 @@ The upstream example worktree is used for human-oriented acceptance:
 
 Exit criteria: there is a written current-state report and a known reproducible real-Pi example run.
 
-### M1 — Build the Factory Lab and regression harness
+### M1 — Build the regression harness around the Factory Lab
 
-- Add a minimal target-project fixture based on the example project.
-- Add temporary-repository integration tests for installation.
-- Add deterministic control-plane tests.
-- Add a real-Pi smoke command.
+- Keep the pinned example worktree as the manual dogfooding target.
+- Create temporary copies or clones from the pinned example commit for clean-install tests.
+- Add deterministic control-plane tests using those temporary targets where practical.
+- Add a real-Pi smoke command against the example worktree or a clean copy of it.
 - Verify Justfile commands and SQLite trace output.
 - Ensure tests distinguish fake/recorded Pi from real Pi.
+- Introduce a smaller target fixture only when a specific test cannot reasonably use the example project.
 
-Exit criteria: a clean temporary target can be installed and tested, and the real example project can complete a documented real-Pi smoke path.
+Exit criteria: the example project is the documented manual Factory Lab, clean temporary copies can be installed and tested, and a real-Pi smoke path completes against the example-based target.
 
 ### M2 — Harden safety and lifecycle behavior
 
